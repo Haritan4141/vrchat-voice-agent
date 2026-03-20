@@ -20,7 +20,7 @@ monitor_output_device = ""
 
 [stt]
 backend = "faster_whisper"
-model = "small"
+model = "large-v3"
 device = "cuda"
 compute_type = "float16"
 language = "ja"
@@ -39,7 +39,7 @@ timeout_sec = 60
 system_prompt = """
 あなたはVRChat内で自然に会話するローカル音声アシスタントです。
 返答は短く、会話相手の話を優先して拾ってください。
-聞き役を基本にしつつ、会話が止まった時だけ軽く話題を出してください。
+聞き役を基本にしつつ、自然に会話に混ざってください。
 """
 
 [tts]
