@@ -1,7 +1,9 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
+import json
 from pathlib import Path
+import shutil
 from typing import Any
 import urllib.error
 import urllib.request
@@ -84,6 +86,10 @@ class AppConfig:
     conversation: ConversationConfig
 
 
+DEFAULT_CONFIG_PATH = Path("config/settings.toml")
+EXAMPLE_CONFIG_PATH = Path("config/settings.example.toml")
+
+
 def _table(data: dict[str, Any], *keys: str) -> dict[str, Any]:
     current: Any = data
     path = []
@@ -163,6 +169,97 @@ def load_config(path: Path) -> AppConfig:
             pause_listening_while_speaking=bool(conversation["pause_listening_while_speaking"]),
         ),
     )
+
+
+def ensure_config_file(
+    path: Path = DEFAULT_CONFIG_PATH,
+    example_path: Path = EXAMPLE_CONFIG_PATH,
+) -> Path:
+    if path.exists():
+        return path
+    if not example_path.exists():
+        raise FileNotFoundError(f"Example config file was not found: {example_path}")
+    path.parent.mkdir(parents=True, exist_ok=True)
+    shutil.copyfile(example_path, path)
+    return path
+
+
+def _quote_string(value: str) -> str:
+    return json.dumps(value, ensure_ascii=False)
+
+
+def _quote_multiline_literal(value: str) -> str:
+    normalized = value.replace("\r\n", "\n").replace("\r", "\n").strip("\n")
+    if "'''" in normalized:
+        return _quote_string(normalized)
+    return "'''\n" + normalized + "\n'''"
+
+
+def dump_config(config: AppConfig) -> str:
+    lines = [
+        "[audio.capture]",
+        f"mode = {_quote_string(config.audio_capture.mode)}",
+        f"input_device = {_quote_string(config.audio_capture.input_device)}",
+        f"sample_rate = {config.audio_capture.sample_rate}",
+        f"channels = {config.audio_capture.channels}",
+        f"chunk_ms = {config.audio_capture.chunk_ms}",
+        f"silence_timeout_ms = {config.audio_capture.silence_timeout_ms}",
+        f"rms_threshold = {config.audio_capture.rms_threshold:g}",
+        f"min_speech_ms = {config.audio_capture.min_speech_ms}",
+        f"max_utterance_ms = {config.audio_capture.max_utterance_ms}",
+        "",
+        "[audio.output]",
+        f"tts_output_device = {_quote_string(config.audio_output.tts_output_device)}",
+        f"monitor_output_device = {_quote_string(config.audio_output.monitor_output_device)}",
+        "",
+        "[stt]",
+        f"backend = {_quote_string(config.stt.backend)}",
+        f"model = {_quote_string(config.stt.model)}",
+        f"device = {_quote_string(config.stt.device)}",
+        f"compute_type = {_quote_string(config.stt.compute_type)}",
+        f"language = {_quote_string(config.stt.language)}",
+        f"timeout_sec = {config.stt.timeout_sec}",
+        f"beam_size = {config.stt.beam_size}",
+        f"vad_filter = {str(config.stt.vad_filter).lower()}",
+        f"vad_min_silence_ms = {config.stt.vad_min_silence_ms}",
+        "",
+        "[llm]",
+        f"backend = {_quote_string(config.llm.backend)}",
+        f"base_url = {_quote_string(config.llm.base_url)}",
+        f"model = {_quote_string(config.llm.model)}",
+        f"temperature = {config.llm.temperature:g}",
+        f"max_tokens = {config.llm.max_tokens}",
+        f"timeout_sec = {config.llm.timeout_sec}",
+        f"system_prompt = {_quote_multiline_literal(config.llm.system_prompt)}",
+        "",
+        "[tts]",
+        f"backend = {_quote_string(config.tts.backend)}",
+        f"base_url = {_quote_string(config.tts.base_url)}",
+        f"speaker = {config.tts.speaker}",
+        f"speed_scale = {config.tts.speed_scale:g}",
+        f"timeout_sec = {config.tts.timeout_sec}",
+        "",
+        "[conversation]",
+        f"max_response_chars = {config.conversation.max_response_chars}",
+        f"min_reply_interval_sec = {config.conversation.min_reply_interval_sec}",
+        f"allow_topic_suggestions = {str(config.conversation.allow_topic_suggestions).lower()}",
+        (
+            "pause_listening_while_speaking = "
+            f"{str(config.conversation.pause_listening_while_speaking).lower()}"
+        ),
+    ]
+    return "\n".join(lines) + "\n"
+
+
+def save_config(config: AppConfig, path: Path) -> None:
+    path.parent.mkdir(parents=True, exist_ok=True)
+    path.write_text(dump_config(config), encoding="utf-8")
+
+
+def config_base_dir(config_path: Path) -> Path:
+    if config_path.parent.name.casefold() == "config":
+        return config_path.parent.parent
+    return config_path.parent
 
 
 def probe_http_endpoint(url: str, timeout: float = 2.0) -> tuple[bool, str]:

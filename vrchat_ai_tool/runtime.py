@@ -5,7 +5,9 @@ from dataclasses import dataclass
 from datetime import datetime
 from pathlib import Path
 import tempfile
+import threading
 import time
+from typing import Callable
 
 from .audio import (
     WaveInRecorder,
@@ -18,6 +20,9 @@ from .audio import (
 from .config import AppConfig
 from .services import OllamaClient, VoicevoxClient
 from .stt import create_transcriber
+
+
+LogHandler = Callable[[str], None]
 
 
 def clean_reply_text(text: str, max_chars: int) -> str:
@@ -243,23 +248,38 @@ class BotRuntime:
             reply = "うん、なるほど。"
         return reply
 
-    def run_forever(self, save_audio: bool = False) -> None:
+    def run_forever(
+        self,
+        save_audio: bool = False,
+        stop_event: threading.Event | None = None,
+        logger: LogHandler | None = None,
+        listen_timeout_sec: float = 1.0,
+    ) -> None:
         while True:
-            heard = self.capture_and_transcribe_once(save_audio=save_audio)
+            if stop_event is not None and stop_event.is_set():
+                return
+
+            heard = self.capture_and_transcribe_once(
+                save_audio=save_audio,
+                max_wait_sec=listen_timeout_sec if stop_event is not None else None,
+            )
+            if stop_event is not None and stop_event.is_set():
+                return
+
             transcript = heard.text.strip()
             if not transcript:
                 continue
 
-            print(f"[heard] {transcript}")
+            _emit_log(logger, f"[heard] {transcript}")
 
             now = time.monotonic()
             if now - self.last_reply_at < self.config.conversation.min_reply_interval_sec:
-                print("[skip] cooldown active")
+                _emit_log(logger, "[skip] cooldown active")
                 self.history.append({"role": "user", "content": transcript})
                 continue
 
             reply = self.generate_reply(transcript)
-            print(f"[reply] {reply}")
+            _emit_log(logger, f"[reply] {reply}")
             self.speak_text(reply, save_audio=save_audio)
             self.last_reply_at = time.monotonic()
             self.history.append({"role": "user", "content": transcript})
@@ -275,3 +295,10 @@ def describe_devices() -> str:
     for device in list_output_devices():
         lines.append(f"- [{device.id}] {device.name}")
     return "\n".join(lines)
+
+
+def _emit_log(logger: LogHandler | None, message: str) -> None:
+    if logger is None:
+        print(message)
+        return
+    logger(message)

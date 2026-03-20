@@ -83,6 +83,14 @@ def build_parser() -> argparse.ArgumentParser:
         help="Save input and output WAV files into recordings/.",
     )
 
+    gui_parser = subparsers.add_parser("gui", help="Open the desktop GUI.")
+    gui_parser.add_argument(
+        "--config",
+        type=Path,
+        default=Path("config/settings.toml"),
+        help="Path to the main TOML config file.",
+    )
+
     return parser
 
 
@@ -196,6 +204,10 @@ def main(argv: list[str] | None = None) -> int:
             return run_speak(args.config, args.text, args.save_audio)
         if args.command == "run":
             return run_pipeline(args.config, args.save_audio)
+        if args.command == "gui":
+            from .gui import run_gui
+
+            return run_gui(args.config)
     except KeyboardInterrupt:
         print("Interrupted.", file=sys.stderr)
         return 130
