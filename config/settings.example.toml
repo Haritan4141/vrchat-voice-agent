@@ -1,0 +1,49 @@
+[audio.capture]
+mode = "virtual_device"
+input_device = "CABLE Output"
+sample_rate = 16000
+channels = 1
+chunk_ms = 200
+silence_timeout_ms = 900
+rms_threshold = 500
+min_speech_ms = 400
+max_utterance_ms = 9000
+
+[audio.output]
+# VRChat音声の取り込みに使うルートとは別の仮想出力を指定すること。
+tts_output_device = "CABLE Input"
+monitor_output_device = ""
+
+[stt]
+backend = "system_speech"
+model = "windows"
+device = "system"
+compute_type = "default"
+language = "ja-JP"
+timeout_sec = 8
+
+[llm]
+backend = "ollama"
+base_url = "http://127.0.0.1:11434"
+model = "qwen2.5:7b-instruct"
+temperature = 0.7
+max_tokens = 120
+timeout_sec = 60
+system_prompt = """
+あなたはVRChat内で自然に会話するローカル音声アシスタントです。
+返答は短く、会話相手の話を優先して拾ってください。
+聞き役を基本にしつつ、会話が止まった時だけ軽く話題を出してください。
+"""
+
+[tts]
+backend = "voicevox"
+base_url = "http://127.0.0.1:50021"
+speaker = 3
+speed_scale = 1.0
+timeout_sec = 30
+
+[conversation]
+max_response_chars = 80
+min_reply_interval_sec = 8
+allow_topic_suggestions = true
+pause_listening_while_speaking = true
