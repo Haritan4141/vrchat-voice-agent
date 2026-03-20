@@ -20,7 +20,7 @@ model = "windows"
 device = "system"
 compute_type = "default"
 language = "ja-JP"
-timeout_sec = 8
+timeout_sec = 20
 
 [llm]
 backend = "ollama"

@@ -4,6 +4,7 @@ import os
 from dataclasses import dataclass
 from pathlib import Path
 import subprocess
+import wave
 
 
 POWERSHELL_TRANSCRIBE_SCRIPT = r"""
@@ -66,6 +67,12 @@ class SystemSpeechTranscriber:
         env["VRCHAT_AI_TOOL_STT_WAVE_PATH"] = str(wave_path)
         env["VRCHAT_AI_TOOL_STT_TIMEOUT_SEC"] = str(self.timeout_sec)
 
+        with wave.open(str(wave_path), "rb") as wav_file:
+            frame_rate = wav_file.getframerate() or 1
+            frame_count = wav_file.getnframes()
+        duration_sec = frame_count / frame_rate
+        process_timeout = max(self.timeout_sec + 5, int(duration_sec * 3) + 5)
+
         completed = subprocess.run(
             ["powershell", "-NoProfile", "-NonInteractive", "-Command", "-"],
             input=POWERSHELL_TRANSCRIBE_SCRIPT,
@@ -73,7 +80,7 @@ class SystemSpeechTranscriber:
             text=True,
             encoding="utf-8",
             env=env,
-            timeout=self.timeout_sec + 5,
+            timeout=process_timeout,
             check=False,
         )
         if completed.returncode != 0:
