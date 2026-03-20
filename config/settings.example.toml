@@ -1,6 +1,6 @@
 [audio.capture]
 mode = "virtual_device"
-input_device = "CABLE Output"
+input_device = "CABLE-A Output"
 sample_rate = 16000
 channels = 1
 chunk_ms = 200
@@ -10,8 +10,12 @@ min_speech_ms = 400
 max_utterance_ms = 9000
 
 [audio.output]
-# VRChat音声の取り込みに使うルートとは別の仮想出力を指定すること。
-tts_output_device = "CABLE Input"
+# Recommended A/B cable layout:
+# - VRChat output      -> CABLE-A Input
+# - Tool input_device  -> CABLE-A Output
+# - Tool TTS output    -> CABLE-B Input
+# - VRChat microphone  -> CABLE-B Output
+tts_output_device = "CABLE-B Input"
 monitor_output_device = ""
 
 [stt]
@@ -28,7 +32,7 @@ vad_min_silence_ms = 500
 [llm]
 backend = "ollama"
 base_url = "http://127.0.0.1:11434"
-model = "qwen2.5:7b-instruct"
+model = "gemma3:12b"
 temperature = 0.7
 max_tokens = 120
 timeout_sec = 60
@@ -47,6 +51,6 @@ timeout_sec = 30
 
 [conversation]
 max_response_chars = 80
-min_reply_interval_sec = 8
+min_reply_interval_sec = 4
 allow_topic_suggestions = true
 pause_listening_while_speaking = true
