@@ -7,7 +7,7 @@ name = "vrchat-ai-tool"
 version = "0.1.0"
 description = "Local voice-only VRChat assistant scaffold"
 readme = "README.md"
-requires-python = ">=3.12"
+requires-python = ">=3.10"
 authors = [
   { name = "Haritan" }
 ]
@@ -21,4 +21,4 @@ packages = ["vrchat_ai_tool"]
 
 [tool.ruff]
 line-length = 100
-target-version = "py312"
+target-version = "py310"

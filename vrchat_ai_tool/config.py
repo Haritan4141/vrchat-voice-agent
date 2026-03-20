@@ -3,9 +3,15 @@ from __future__ import annotations
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
-import tomllib
 import urllib.error
 import urllib.request
+
+try:
+    import tomllib
+except ModuleNotFoundError:  # pragma: no cover - exercised on Python 3.10
+    tomllib = None
+
+from . import simple_toml
 
 
 @dataclass(slots=True)
@@ -91,7 +97,11 @@ def _table(data: dict[str, Any], *keys: str) -> dict[str, Any]:
 
 
 def load_config(path: Path) -> AppConfig:
-    raw = tomllib.loads(path.read_text(encoding="utf-8"))
+    config_text = path.read_text(encoding="utf-8")
+    if tomllib is not None:
+        raw = tomllib.loads(config_text)
+    else:
+        raw = simple_toml.loads(config_text)
 
     audio_capture = _table(raw, "audio", "capture")
     audio_output = _table(raw, "audio", "output")
