@@ -17,7 +17,7 @@ from .audio import (
 )
 from .config import AppConfig
 from .services import OllamaClient, VoicevoxClient
-from .stt import SystemSpeechTranscriber
+from .stt import create_transcriber
 
 
 def clean_reply_text(text: str, max_chars: int) -> str:
@@ -110,10 +110,7 @@ class BotRuntime:
             channels=config.audio_capture.channels,
             chunk_ms=config.audio_capture.chunk_ms,
         )
-        self.transcriber = SystemSpeechTranscriber(
-            culture=config.stt.language,
-            timeout_sec=config.stt.timeout_sec,
-        )
+        self.transcriber = create_transcriber(config.stt)
         self.ollama = OllamaClient(
             base_url=config.llm.base_url,
             model=config.llm.model,

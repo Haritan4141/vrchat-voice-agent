@@ -15,12 +15,15 @@ tts_output_device = "CABLE Input"
 monitor_output_device = ""
 
 [stt]
-backend = "system_speech"
-model = "windows"
-device = "system"
-compute_type = "default"
-language = "ja-JP"
+backend = "faster_whisper"
+model = "small"
+device = "cuda"
+compute_type = "float16"
+language = "ja"
 timeout_sec = 20
+beam_size = 5
+vad_filter = true
+vad_min_silence_ms = 500
 
 [llm]
 backend = "ollama"

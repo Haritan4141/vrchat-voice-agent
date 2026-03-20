@@ -27,9 +27,12 @@ class ConfigTests(unittest.TestCase):
             [stt]
             backend = "faster_whisper"
             model = "small"
-            device = "auto"
+            device = "cuda"
             compute_type = "int8"
             language = "ja"
+            beam_size = 3
+            vad_filter = true
+            vad_min_silence_ms = 400
 
             [llm]
             backend = "ollama"
@@ -67,6 +70,8 @@ class ConfigTests(unittest.TestCase):
         self.assertTrue(config.conversation.allow_topic_suggestions)
         self.assertEqual(config.audio_capture.rms_threshold, 500.0)
         self.assertEqual(config.stt.timeout_sec, 8)
+        self.assertEqual(config.stt.beam_size, 3)
+        self.assertTrue(config.stt.vad_filter)
 
 
 if __name__ == "__main__":

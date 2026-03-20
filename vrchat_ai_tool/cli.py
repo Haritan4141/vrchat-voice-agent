@@ -92,6 +92,7 @@ def print_summary(config) -> None:
     print(f"- capture.input_device: {config.audio_capture.input_device}")
     print(f"- output.tts_output_device: {config.audio_output.tts_output_device}")
     print(f"- stt.backend: {config.stt.backend}")
+    print(f"- stt.model: {config.stt.model}")
     print(f"- stt.language: {config.stt.language}")
     print(f"- llm.backend: {config.llm.backend}")
     print(f"- llm.model: {config.llm.model}")

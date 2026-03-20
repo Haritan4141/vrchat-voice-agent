@@ -41,6 +41,9 @@ class SttConfig:
     compute_type: str
     language: str
     timeout_sec: int
+    beam_size: int
+    vad_filter: bool
+    vad_min_silence_ms: int
 
 
 @dataclass(slots=True)
@@ -133,6 +136,9 @@ def load_config(path: Path) -> AppConfig:
             compute_type=str(stt["compute_type"]),
             language=str(stt["language"]),
             timeout_sec=int(stt.get("timeout_sec", 8)),
+            beam_size=int(stt.get("beam_size", 5)),
+            vad_filter=bool(stt.get("vad_filter", True)),
+            vad_min_silence_ms=int(stt.get("vad_min_silence_ms", 500)),
         ),
         llm=LlmConfig(
             backend=str(llm["backend"]),

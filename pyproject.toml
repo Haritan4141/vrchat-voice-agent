@@ -13,6 +13,11 @@ authors = [
 ]
 dependencies = []
 
+[project.optional-dependencies]
+stt = [
+  "faster-whisper",
+]
+
 [project.scripts]
 vrchat-ai-tool = "vrchat_ai_tool.cli:main"
 

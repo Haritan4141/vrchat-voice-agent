@@ -1,10 +1,14 @@
 from __future__ import annotations
 
+from dataclasses import dataclass, field
+from importlib import import_module
 import os
-from dataclasses import dataclass
 from pathlib import Path
 import subprocess
+from typing import Protocol
 import wave
+
+from .config import SttConfig
 
 
 POWERSHELL_TRANSCRIBE_SCRIPT = r"""
@@ -56,6 +60,18 @@ if (-not [string]::IsNullOrWhiteSpace($joined)) {
 """
 
 
+class Transcriber(Protocol):
+    def transcribe_wav(self, wave_path: Path) -> str:
+        ...
+
+
+def normalize_whisper_language(language: str) -> str | None:
+    cleaned = language.strip()
+    if not cleaned or cleaned.casefold() == "auto":
+        return None
+    return cleaned.split("-", 1)[0].casefold()
+
+
 @dataclass(slots=True)
 class SystemSpeechTranscriber:
     culture: str
@@ -89,3 +105,78 @@ class SystemSpeechTranscriber:
             detail = stderr or stdout or f"exit code {completed.returncode}"
             raise RuntimeError(f"System.Speech transcription failed: {detail}")
         return " ".join(completed.stdout.split())
+
+
+@dataclass(slots=True)
+class FasterWhisperTranscriber:
+    model_name: str
+    device: str
+    compute_type: str
+    language: str
+    beam_size: int
+    vad_filter: bool
+    vad_min_silence_ms: int
+    _model: object | None = field(default=None, init=False, repr=False)
+
+    def _get_model(self):
+        if self._model is not None:
+            return self._model
+
+        try:
+            module = import_module("faster_whisper")
+        except ModuleNotFoundError as exc:
+            raise RuntimeError(
+                "faster-whisper is not installed. Run `python -m pip install faster-whisper`."
+            ) from exc
+
+        model_class = getattr(module, "WhisperModel", None)
+        if model_class is None:
+            raise RuntimeError("faster-whisper import succeeded, but WhisperModel was not found.")
+
+        self._model = model_class(
+            self.model_name,
+            device=self.device,
+            compute_type=self.compute_type,
+        )
+        return self._model
+
+    def transcribe_wav(self, wave_path: Path) -> str:
+        model = self._get_model()
+        language = normalize_whisper_language(self.language)
+        transcribe_kwargs: dict[str, object] = {
+            "beam_size": self.beam_size,
+            "task": "transcribe",
+        }
+        if language is not None:
+            transcribe_kwargs["language"] = language
+        if self.vad_filter:
+            transcribe_kwargs["vad_filter"] = True
+            transcribe_kwargs["vad_parameters"] = {
+                "min_silence_duration_ms": self.vad_min_silence_ms,
+            }
+
+        segments, _info = model.transcribe(str(wave_path), **transcribe_kwargs)
+        return "".join(getattr(segment, "text", "") for segment in segments).strip()
+
+
+def create_transcriber(config: SttConfig) -> Transcriber:
+    backend = config.backend.casefold()
+
+    if backend == "system_speech":
+        return SystemSpeechTranscriber(
+            culture=config.language,
+            timeout_sec=config.timeout_sec,
+        )
+
+    if backend == "faster_whisper":
+        return FasterWhisperTranscriber(
+            model_name=config.model,
+            device=config.device,
+            compute_type=config.compute_type,
+            language=config.language,
+            beam_size=config.beam_size,
+            vad_filter=config.vad_filter,
+            vad_min_silence_ms=config.vad_min_silence_ms,
+        )
+
+    raise RuntimeError(f"Unsupported STT backend: {config.backend}")

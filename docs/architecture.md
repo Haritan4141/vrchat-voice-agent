@@ -121,11 +121,11 @@
 
 - 音声入力: `waveIn`
 - 音声出力: `waveOut`
-- STT: `System.Speech`
+- STT: `faster-whisper`
 - LLM: `Ollama HTTP API`
 - TTS: `VOICEVOX Engine HTTP API`
 
-Whisper系STTは次段階の差し替え先として残しています。
+設定ファイルで `small` / `medium` / `large-v3` を切り替えられるようにしています。
 
 ## 将来の分岐
 
