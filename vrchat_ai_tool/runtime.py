@@ -36,6 +36,52 @@ def _normalize_route_name(name: str) -> str:
     return " ".join(normalized.split())
 
 
+def is_probably_same_virtual_route(capture_name: str, output_name: str) -> bool:
+    if not capture_name or not output_name:
+        return False
+
+    normalized_capture = _normalize_route_name(capture_name)
+    normalized_output = _normalize_route_name(output_name)
+    if "cable" not in normalized_capture or "cable" not in normalized_output:
+        return False
+    return normalized_capture == normalized_output
+
+
+def resolve_output_device_ids(config: AppConfig) -> tuple[int, int | None]:
+    output_device_id = find_device_id("output", config.audio_output.tts_output_device)
+    monitor_device_id = (
+        find_device_id("output", config.audio_output.monitor_output_device)
+        if config.audio_output.monitor_output_device
+        else None
+    )
+    return output_device_id, monitor_device_id
+
+
+def speak_with_config(config: AppConfig, text: str, save_audio: bool = False) -> Path | None:
+    base_dir = Path.cwd()
+    recordings_dir = base_dir / "recordings"
+    voicevox = VoicevoxClient(
+        base_url=config.tts.base_url,
+        speaker=config.tts.speaker,
+        speed_scale=config.tts.speed_scale,
+        timeout_sec=config.tts.timeout_sec,
+    )
+    wav_bytes = voicevox.synthesize(text)
+    wav_path: Path | None = None
+    if save_audio:
+        timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+        recordings_dir.mkdir(parents=True, exist_ok=True)
+        wav_path = recordings_dir / f"{timestamp}_output.wav"
+        wav_path.write_bytes(wav_bytes)
+
+    output_device_id, monitor_device_id = resolve_output_device_ids(config)
+    output_ids = [output_device_id]
+    if monitor_device_id is not None:
+        output_ids.append(monitor_device_id)
+    play_wav_to_devices(wav_bytes, output_ids)
+    return wav_path
+
+
 @dataclass(slots=True)
 class HeardUtterance:
     text: str
@@ -85,16 +131,10 @@ class BotRuntime:
         self.last_reply_at = 0.0
 
     def is_probably_same_virtual_route(self) -> bool:
-        capture_name = self.config.audio_capture.input_device
-        output_name = self.config.audio_output.tts_output_device
-        if not capture_name or not output_name:
-            return False
-
-        normalized_capture = _normalize_route_name(capture_name)
-        normalized_output = _normalize_route_name(output_name)
-        if "cable" not in normalized_capture or "cable" not in normalized_output:
-            return False
-        return normalized_capture == normalized_output
+        return is_probably_same_virtual_route(
+            self.config.audio_capture.input_device,
+            self.config.audio_output.tts_output_device,
+        )
 
     def start(self) -> None:
         self.recorder.open()

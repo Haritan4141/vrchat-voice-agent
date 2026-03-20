@@ -5,7 +5,9 @@ from pathlib import Path
 import sys
 
 from .config import load_config, probe_http_endpoint
-from .runtime import BotRuntime, describe_devices
+from .audio import find_device_id
+from .runtime import BotRuntime, describe_devices, is_probably_same_virtual_route, speak_with_config
+from .services import OllamaClient, VoicevoxClient
 
 
 def build_parser() -> argparse.ArgumentParser:
@@ -101,14 +103,25 @@ def run_doctor(config_path: Path, check_services: bool, check_devices: bool) -> 
     config = load_config(config_path)
     print_summary(config)
 
-    runtime = BotRuntime(config)
-
     if check_services:
         print("")
         print("HTTP probe")
+        ollama = OllamaClient(
+            base_url=config.llm.base_url,
+            model=config.llm.model,
+            temperature=config.llm.temperature,
+            max_tokens=config.llm.max_tokens,
+            timeout_sec=config.llm.timeout_sec,
+        )
+        voicevox = VoicevoxClient(
+            base_url=config.tts.base_url,
+            speaker=config.tts.speaker,
+            speed_scale=config.tts.speed_scale,
+            timeout_sec=config.tts.timeout_sec,
+        )
         for name, url in {
-            "llm": runtime.ollama.healthcheck_url(),
-            "tts": runtime.voicevox.healthcheck_url(),
+            "llm": ollama.healthcheck_url(),
+            "tts": voicevox.healthcheck_url(),
         }.items():
             ok, detail = probe_http_endpoint(url)
             status = "ok" if ok else "fail"
@@ -117,11 +130,17 @@ def run_doctor(config_path: Path, check_services: bool, check_devices: bool) -> 
     if check_devices:
         print("")
         print("Device resolution")
-        print(f"- input: {runtime.input_device_id}")
-        print(f"- output: {runtime.output_device_id}")
-        if runtime.monitor_device_id is not None:
-            print(f"- monitor: {runtime.monitor_device_id}")
-        if runtime.is_probably_same_virtual_route():
+        input_device_id = find_device_id("input", config.audio_capture.input_device)
+        output_device_id = find_device_id("output", config.audio_output.tts_output_device)
+        print(f"- input: {input_device_id}")
+        print(f"- output: {output_device_id}")
+        if config.audio_output.monitor_output_device:
+            monitor_device_id = find_device_id("output", config.audio_output.monitor_output_device)
+            print(f"- monitor: {monitor_device_id}")
+        if is_probably_same_virtual_route(
+            config.audio_capture.input_device,
+            config.audio_output.tts_output_device,
+        ):
             print("- warning: capture and TTS output look like the same VB-CABLE route")
             print("  use a different virtual route for bot output, or VRChat audio may echo back into its mic")
 
@@ -148,8 +167,7 @@ def run_listen_once(config_path: Path, max_wait_sec: float, save_audio: bool) ->
 
 def run_speak(config_path: Path, text: str, save_audio: bool) -> int:
     config = load_config(config_path)
-    runtime = BotRuntime(config)
-    wav_path = runtime.speak_text(text, save_audio=save_audio)
+    wav_path = speak_with_config(config, text, save_audio=save_audio)
     if wav_path is not None:
         print(f"saved: {wav_path}")
     return 0
