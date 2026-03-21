@@ -452,7 +452,7 @@ class GuiApp:
         self.worker = WorkerState(thread=None, stop_event=threading.Event())
         base_dir = config_base_dir(self.current_config_path)
         self._append_log(f"[info] starting runtime with {self.current_config_path}")
-        self.status_var.set("Running")
+        self.status_var.set("Warming up")
         self._set_running_state(True)
 
         thread = threading.Thread(
@@ -466,6 +466,10 @@ class GuiApp:
     def _run_worker(self, config: AppConfig, base_dir: Path, stop_event: threading.Event) -> None:
         try:
             with BotRuntime(config, base_dir=base_dir) as runtime:
+                runtime.warm_up(logger=self._enqueue_log)
+                if stop_event.is_set():
+                    return
+                self.events.put(("status", "Running"))
                 runtime.run_forever(
                     stop_event=stop_event,
                     logger=self._enqueue_log,
@@ -508,6 +512,8 @@ class GuiApp:
 
             if event_name == "log":
                 self._append_log(payload)
+            elif event_name == "status":
+                self.status_var.set(payload)
             elif event_name == "stopped":
                 self.status_var.set("Stopped")
                 self._set_running_state(False)

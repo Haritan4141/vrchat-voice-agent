@@ -37,6 +37,15 @@ class StubRuntime(BotRuntime):
         return None
 
 
+class WarmupComponent:
+    def __init__(self, label: str, calls: list[str]) -> None:
+        self.label = label
+        self.calls = calls
+
+    def warm_up(self) -> None:
+        self.calls.append(self.label)
+
+
 class RuntimeTests(unittest.TestCase):
     def test_clean_reply_text(self) -> None:
         self.assertEqual(clean_reply_text("  hello   world  ", 20), "hello world")
@@ -52,6 +61,27 @@ class RuntimeTests(unittest.TestCase):
 
         self.assertEqual(logs, ["[heard] hello", "[reply] reply to hello"])
         self.assertTrue(stop_event.is_set())
+
+    def test_warm_up_logs_and_calls_components(self) -> None:
+        runtime = object.__new__(BotRuntime)
+        calls: list[str] = []
+        runtime.transcriber = WarmupComponent("stt", calls)
+        runtime.ollama = WarmupComponent("llm", calls)
+        runtime.voicevox = WarmupComponent("tts", calls)
+        logs: list[str] = []
+
+        runtime.warm_up(logger=logs.append)
+
+        self.assertEqual(calls, ["stt", "llm", "tts"])
+        self.assertEqual(
+            logs,
+            [
+                "[warmup] loading STT model...",
+                "[warmup] loading LLM model...",
+                "[warmup] priming TTS engine...",
+                "[warmup] ready",
+            ],
+        )
 
 
 if __name__ == "__main__":

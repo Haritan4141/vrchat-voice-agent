@@ -151,6 +151,15 @@ class BotRuntime:
     def __exit__(self, _exc_type, _exc, _tb) -> None:
         self.stop()
 
+    def warm_up(self, logger: LogHandler | None = None) -> None:
+        _emit_log(logger, "[warmup] loading STT model...")
+        self.transcriber.warm_up()
+        _emit_log(logger, "[warmup] loading LLM model...")
+        self.ollama.warm_up()
+        _emit_log(logger, "[warmup] priming TTS engine...")
+        self.voicevox.warm_up()
+        _emit_log(logger, "[warmup] ready")
+
     def capture_and_transcribe_once(
         self,
         max_wait_sec: float | None = None,

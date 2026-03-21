@@ -185,6 +185,7 @@ def run_speak(config_path: Path, text: str, save_audio: bool) -> int:
 def run_pipeline(config_path: Path, save_audio: bool) -> int:
     config = load_config(config_path)
     with BotRuntime(config) as runtime:
+        runtime.warm_up()
         runtime.run_forever(save_audio=save_audio)
     return 0
 

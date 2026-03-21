@@ -61,6 +61,9 @@ if (-not [string]::IsNullOrWhiteSpace($joined)) {
 
 
 class Transcriber(Protocol):
+    def warm_up(self) -> None:
+        ...
+
     def transcribe_wav(self, wave_path: Path) -> str:
         ...
 
@@ -76,6 +79,9 @@ def normalize_whisper_language(language: str) -> str | None:
 class SystemSpeechTranscriber:
     culture: str
     timeout_sec: int
+
+    def warm_up(self) -> None:
+        return None
 
     def transcribe_wav(self, wave_path: Path) -> str:
         env = os.environ.copy()
@@ -117,6 +123,9 @@ class FasterWhisperTranscriber:
     vad_filter: bool
     vad_min_silence_ms: int
     _model: object | None = field(default=None, init=False, repr=False)
+
+    def warm_up(self) -> None:
+        self._get_model()
 
     def _get_model(self):
         if self._model is not None:

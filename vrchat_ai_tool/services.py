@@ -51,7 +51,11 @@ class OllamaClient:
     max_tokens: int
     timeout_sec: int
 
-    def chat(self, messages: list[dict[str, str]]) -> str:
+    def _chat_request(
+        self,
+        messages: list[dict[str, str]],
+        max_tokens: int,
+    ) -> dict:
         url = f"{self.base_url.rstrip('/')}/api/chat"
         payload = {
             "model": self.model,
@@ -59,15 +63,24 @@ class OllamaClient:
             "messages": messages,
             "options": {
                 "temperature": self.temperature,
-                "num_predict": self.max_tokens,
+                "num_predict": max_tokens,
             },
         }
-        response = _http_json(url, method="POST", payload=payload, timeout=self.timeout_sec)
+        return _http_json(url, method="POST", payload=payload, timeout=self.timeout_sec)
+
+    def chat(self, messages: list[dict[str, str]]) -> str:
+        response = self._chat_request(messages, self.max_tokens)
         message = response.get("message", {})
         text = str(message.get("content", "")).strip()
         if not text:
             raise RuntimeError("Ollama response did not contain message.content")
         return text
+
+    def warm_up(self) -> None:
+        self._chat_request(
+            [{"role": "system", "content": "Warm up the model. Do not answer."}],
+            max_tokens=1,
+        )
 
     def healthcheck_url(self) -> str:
         return f"{self.base_url.rstrip('/')}/api/tags"
@@ -79,6 +92,9 @@ class VoicevoxClient:
     speaker: int
     speed_scale: float
     timeout_sec: int
+
+    def warm_up(self) -> None:
+        self.synthesize("準備")
 
     def synthesize(self, text: str) -> bytes:
         base = self.base_url.rstrip("/")
