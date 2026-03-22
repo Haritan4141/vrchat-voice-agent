@@ -7,7 +7,7 @@ import sys
 from .config import load_config, probe_http_endpoint
 from .audio import find_device_id
 from .runtime import BotRuntime, describe_devices, is_probably_same_virtual_route, speak_with_config
-from .services import OllamaClient, VoicevoxClient
+from .services import VoicevoxClient, create_llm_client
 
 
 def build_parser() -> argparse.ArgumentParser:
@@ -115,7 +115,8 @@ def run_doctor(config_path: Path, check_services: bool, check_devices: bool) -> 
     if check_services:
         print("")
         print("HTTP probe")
-        ollama = OllamaClient(
+        llm = create_llm_client(
+            backend=config.llm.backend,
             base_url=config.llm.base_url,
             model=config.llm.model,
             temperature=config.llm.temperature,
@@ -129,7 +130,7 @@ def run_doctor(config_path: Path, check_services: bool, check_devices: bool) -> 
             timeout_sec=config.tts.timeout_sec,
         )
         for name, url in {
-            "llm": ollama.healthcheck_url(),
+            "llm": llm.healthcheck_url(),
             "tts": voicevox.healthcheck_url(),
         }.items():
             ok, detail = probe_http_endpoint(url)

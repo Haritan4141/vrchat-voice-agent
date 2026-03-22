@@ -24,12 +24,18 @@ from .config import (
     save_config,
 )
 from .runtime import BotRuntime
+from .services import create_llm_client
 
 
 MODEL_CHOICES = ["small", "medium", "large-v3", "turbo"]
 STT_BACKENDS = ["faster_whisper", "system_speech"]
 STT_DEVICES = ["cuda", "cpu"]
 COMPUTE_TYPES = ["float16", "int8", "int8_float16", "int8_float32", "float32"]
+LLM_BACKENDS = ["ollama", "lm_studio"]
+LLM_DEFAULT_BASE_URLS = {
+    "ollama": "http://127.0.0.1:11434",
+    "lm_studio": "http://127.0.0.1:1234/v1",
+}
 
 
 @dataclass(slots=True)
@@ -56,6 +62,8 @@ class GuiApp:
 
         self.input_device_names: list[str] = []
         self.output_device_names: list[str] = []
+        self.llm_model_names: list[str] = []
+        self._suppress_llm_backend_callback = False
 
         self.file_path_var = tk.StringVar()
         self.status_var = tk.StringVar(value="Ready")
@@ -100,6 +108,8 @@ class GuiApp:
         self.min_reply_interval_var = tk.StringVar()
         self.allow_topic_suggestions_var = tk.BooleanVar()
         self.pause_listening_var = tk.BooleanVar()
+
+        self.llm_backend_var.trace_add("write", self._on_llm_backend_changed)
 
         self._build_ui()
         self._bind_hotkeys()
@@ -219,25 +229,37 @@ class GuiApp:
     def _build_llm_tab(self, parent: ttk.Frame) -> None:
         parent.columnconfigure(1, weight=1)
         parent.columnconfigure(3, weight=1)
+        parent.columnconfigure(4, weight=0)
         parent.rowconfigure(5, weight=1)
 
-        self._add_entry(parent, "LLM backend", self.llm_backend_var, 0, 0)
-        self._add_entry(parent, "LLM base URL", self.llm_base_url_var, 0, 2)
-        self._add_entry(parent, "LLM model", self.llm_model_var, 1, 0)
-        self._add_entry(parent, "Temperature", self.temperature_var, 1, 2)
-        self._add_entry(parent, "Max tokens", self.max_tokens_var, 2, 0)
-        self._add_entry(parent, "LLM timeout sec", self.llm_timeout_var, 2, 2)
+        ttk.Label(
+            parent,
+            text="Ollama default: http://127.0.0.1:11434   LM Studio default: http://127.0.0.1:1234/v1",
+            wraplength=980,
+        ).grid(row=0, column=0, columnspan=4, sticky="w", pady=(0, 12))
 
-        self._add_entry(parent, "TTS backend", self.tts_backend_var, 3, 0)
-        self._add_entry(parent, "TTS base URL", self.tts_base_url_var, 3, 2)
-        self._add_entry(parent, "Speaker", self.tts_speaker_var, 4, 0)
-        self._add_entry(parent, "Speed scale", self.speed_scale_var, 4, 2)
-        self._add_entry(parent, "TTS timeout sec", self.tts_timeout_var, 5, 0)
+        self._add_combo(parent, "LLM backend", self.llm_backend_var, 1, 0, values=LLM_BACKENDS)
+        self._add_entry(parent, "LLM base URL", self.llm_base_url_var, 1, 2)
+        self.llm_model_combo = self._add_combo(parent, "LLM model", self.llm_model_var, 2, 0)
+        self.refresh_models_button = ttk.Button(
+            parent,
+            text="Refresh Models",
+            command=self._refresh_llm_models,
+        )
+        self.refresh_models_button.grid(row=2, column=4, sticky="w", pady=4, padx=(8, 0))
+        self._add_entry(parent, "Temperature", self.temperature_var, 2, 2)
+        self._add_entry(parent, "Max tokens", self.max_tokens_var, 3, 0)
+        self._add_entry(parent, "LLM timeout sec", self.llm_timeout_var, 3, 2)
+        self._add_entry(parent, "TTS backend", self.tts_backend_var, 4, 0)
+        self._add_entry(parent, "TTS base URL", self.tts_base_url_var, 4, 2)
+        self._add_entry(parent, "Speaker", self.tts_speaker_var, 5, 0)
+        self._add_entry(parent, "Speed scale", self.speed_scale_var, 5, 2)
+        self._add_entry(parent, "TTS timeout sec", self.tts_timeout_var, 6, 0)
 
-        ttk.Label(parent, text="System prompt").grid(row=6, column=0, sticky="nw", pady=(12, 4))
+        ttk.Label(parent, text="System prompt").grid(row=7, column=0, sticky="nw", pady=(12, 4))
         self.system_prompt_text = scrolledtext.ScrolledText(parent, wrap="word", height=12)
-        self.system_prompt_text.grid(row=7, column=0, columnspan=4, sticky="nsew")
-        parent.rowconfigure(7, weight=1)
+        self.system_prompt_text.grid(row=8, column=0, columnspan=4, sticky="nsew")
+        parent.rowconfigure(8, weight=1)
 
     def _build_conversation_tab(self, parent: ttk.Frame) -> None:
         parent.columnconfigure(1, weight=1)
@@ -288,6 +310,55 @@ class GuiApp:
         self.root.bind_all("<F1>", lambda _event: self._start_runtime())
         self.root.bind_all("<F2>", lambda _event: self._stop_runtime())
 
+    def _on_llm_backend_changed(self, *_args) -> None:
+        if self._suppress_llm_backend_callback:
+            return
+
+        backend = self.llm_backend_var.get().strip()
+        default_url = LLM_DEFAULT_BASE_URLS.get(backend)
+        if default_url is None:
+            return
+
+        current_url = self.llm_base_url_var.get().strip()
+        known_urls = set(LLM_DEFAULT_BASE_URLS.values())
+        if not current_url or current_url in known_urls:
+            self.llm_base_url_var.set(default_url)
+        self._refresh_llm_models(show_errors=False)
+
+    def _refresh_llm_models(self, show_errors: bool = True) -> None:
+        backend = self.llm_backend_var.get().strip()
+        base_url = self.llm_base_url_var.get().strip()
+        model = self.llm_model_var.get().strip() or "placeholder"
+
+        if not backend or not base_url:
+            self.llm_model_names = []
+            self.llm_model_combo["values"] = []
+            return
+
+        try:
+            client = create_llm_client(
+                backend=backend,
+                base_url=base_url,
+                model=model,
+                temperature=0.0,
+                max_tokens=1,
+                timeout_sec=5,
+            )
+            names = client.list_models()
+        except Exception as exc:
+            if show_errors:
+                messagebox.showerror("Model refresh failed", str(exc))
+            return
+
+        self.llm_model_names = names
+        self.llm_model_combo["values"] = names
+
+        current_model = self.llm_model_var.get().strip()
+        if not current_model and names:
+            self.llm_model_var.set(names[0])
+        self.status_var.set("Models refreshed")
+        self._append_log(f"[info] refreshed {backend} models: {len(names)} found")
+
     def _refresh_devices(self) -> None:
         try:
             self.input_device_names = [device.name for device in list_input_devices()]
@@ -305,6 +376,8 @@ class GuiApp:
         config = load_config(path)
         self.current_config_path = path
         self.file_path_var.set(str(path.resolve()))
+
+        self._suppress_llm_backend_callback = True
 
         self.capture_mode_var.set(config.audio_capture.mode)
         self.input_device_var.set(config.audio_capture.input_device)
@@ -350,6 +423,8 @@ class GuiApp:
         self.system_prompt_text.delete("1.0", tk.END)
         self.system_prompt_text.insert("1.0", config.llm.system_prompt)
 
+        self._suppress_llm_backend_callback = False
+        self._refresh_llm_models(show_errors=False)
         self.status_var.set("Loaded")
         self._append_log(f"[info] loaded config: {path}")
 
@@ -493,6 +568,7 @@ class GuiApp:
         self.load_button.state(["disabled"] if is_running else ["!disabled"])
         self.save_button.state(["disabled"] if is_running else ["!disabled"])
         self.refresh_devices_button.state(["disabled"] if is_running else ["!disabled"])
+        self.refresh_models_button.state(["disabled"] if is_running else ["!disabled"])
 
     def _enqueue_log(self, message: str) -> None:
         self.events.put(("log", message))

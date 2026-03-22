@@ -66,7 +66,7 @@ class RuntimeTests(unittest.TestCase):
         runtime = object.__new__(BotRuntime)
         calls: list[str] = []
         runtime.transcriber = WarmupComponent("stt", calls)
-        runtime.ollama = WarmupComponent("llm", calls)
+        runtime.llm = WarmupComponent("llm", calls)
         runtime.voicevox = WarmupComponent("tts", calls)
         logs: list[str] = []
 

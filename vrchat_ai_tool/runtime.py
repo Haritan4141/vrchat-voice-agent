@@ -18,7 +18,7 @@ from .audio import (
     save_pcm_as_wav,
 )
 from .config import AppConfig
-from .services import OllamaClient, VoicevoxClient
+from .services import VoicevoxClient, create_llm_client
 from .stt import create_transcriber
 
 
@@ -116,7 +116,8 @@ class BotRuntime:
             chunk_ms=config.audio_capture.chunk_ms,
         )
         self.transcriber = create_transcriber(config.stt)
-        self.ollama = OllamaClient(
+        self.llm = create_llm_client(
+            backend=config.llm.backend,
             base_url=config.llm.base_url,
             model=config.llm.model,
             temperature=config.llm.temperature,
@@ -155,7 +156,7 @@ class BotRuntime:
         _emit_log(logger, "[warmup] loading STT model...")
         self.transcriber.warm_up()
         _emit_log(logger, "[warmup] loading LLM model...")
-        self.ollama.warm_up()
+        self.llm.warm_up()
         _emit_log(logger, "[warmup] priming TTS engine...")
         self.voicevox.warm_up()
         _emit_log(logger, "[warmup] ready")
@@ -251,7 +252,7 @@ class BotRuntime:
 
     def generate_reply(self, transcript: str) -> str:
         messages = self.build_messages(transcript)
-        reply = self.ollama.chat(messages)
+        reply = self.llm.chat(messages)
         reply = clean_reply_text(reply, self.config.conversation.max_response_chars)
         if not reply:
             reply = "うん、なるほど。"
