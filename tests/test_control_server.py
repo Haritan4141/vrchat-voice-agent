@@ -9,7 +9,7 @@ import urllib.request
 from http.server import ThreadingHTTPServer
 from pathlib import Path
 
-from vrchat_ai_tool.control_server import load_or_create_token, make_handler
+from vrchat_ai_tool.control_server import CONTROL_HTML, load_or_create_token, make_handler
 from vrchat_ai_tool.voice_config import (
     ChatGPTVoiceConfig,
     VoiceAudioConfig,
@@ -47,6 +47,11 @@ class FakeService:
 
 
 class ControlServerTests(unittest.TestCase):
+    def test_control_page_persists_token_in_browser(self) -> None:
+        self.assertIn("localStorage.setItem('voiceAgentToken'", CONTROL_HTML)
+        self.assertIn("sessionStorage.getItem('voiceAgentToken'", CONTROL_HTML)
+        self.assertIn("forgetToken()", CONTROL_HTML)
+
     def test_token_is_generated_once_and_reused(self) -> None:
         with tempfile.TemporaryDirectory() as directory:
             config = ChatGPTVoiceConfig(

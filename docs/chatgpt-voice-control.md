@@ -43,6 +43,8 @@ uv run vrchat-voice-control --config config/chatgpt_voice.toml
 http://サブPCのIPv4:18765/
 ```
 
+トークン入力は最初の1回だけです。「接続・保存」を押すと同じブラウザへ保存され、次回から自動接続します。ブラウザのサイトデータを削除した場合、接続URLを変更した場合、または`control-token.txt`を再生成した場合だけ再入力が必要です。「保存解除」でブラウザから削除できます。
+
 Windows Defender Firewallの確認が出た場合は、プライベートネットワークだけを許可します。ルーターのポート開放は行わないでください。
 
 より安全にするには、`config/chatgpt_voice.toml`の`allowed_client_ips`へメインPCのIPv4だけを指定します。

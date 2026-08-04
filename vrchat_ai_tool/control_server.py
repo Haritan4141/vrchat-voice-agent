@@ -32,7 +32,8 @@ small{color:#aac0cf}dl{display:grid;grid-template-columns:150px 1fr;gap:6px;marg
 </style></head><body>
 <h1>VRChat Voice Agent Control</h1>
 <div class="card"><div class="row"><input id="token" type="password" placeholder="control-token.txt のトークン">
-<button onclick="saveToken()">接続</button></div><small>トークンはこのタブ内だけに保存されます。</small></div>
+<button onclick="saveToken()">接続・保存</button><button onclick="forgetToken()">保存解除</button></div>
+<small>初回接続後はこのブラウザに保存され、次回から自動接続します。</small></div>
 <div class="card"><h2>現在の状態</h2><dl>
 <dt>アバター表示</dt><dd id="agentStatus">—</dd><dt>VRChatマイク</dt><dd id="mic">—</dd>
 <dt>ループ監視</dt><dd id="loop">—</dd><dt>CABLE-A / B</dt><dd id="levels">—</dd></dl>
@@ -48,8 +49,9 @@ small{color:#aac0cf}dl{display:grid;grid-template-columns:150px 1fr;gap:6px;marg
 </div></div>
 <script>
 const names=['STOPPED','ONLINE','ERROR','MAINTENANCE']; let timer=null;
-function token(){return sessionStorage.getItem('voiceAgentToken')||''}
-function saveToken(){sessionStorage.setItem('voiceAgentToken',document.getElementById('token').value); refresh(); if(!timer)timer=setInterval(refresh,1500)}
+function token(){let value=localStorage.getItem('voiceAgentToken')||'';if(!value){value=sessionStorage.getItem('voiceAgentToken')||'';if(value)localStorage.setItem('voiceAgentToken',value)}return value}
+function saveToken(){const value=document.getElementById('token').value.trim();if(!value){message('トークンを入力してください',true);return}localStorage.setItem('voiceAgentToken',value);sessionStorage.removeItem('voiceAgentToken');refresh();if(!timer)timer=setInterval(refresh,1500)}
+function forgetToken(){localStorage.removeItem('voiceAgentToken');sessionStorage.removeItem('voiceAgentToken');document.getElementById('token').value='';if(timer){clearInterval(timer);timer=null}message('保存したトークンを削除しました')}
 async function request(path,opts={}){opts.headers={...(opts.headers||{}),Authorization:'Bearer '+token(),'Content-Type':'application/json'};
  const response=await fetch(path,opts); const data=await response.json(); if(!response.ok)throw new Error(data.error||response.statusText); return data}
 async function post(path,body={}){try{const d=await request(path,{method:'POST',body:JSON.stringify(body)}); message(d.message||'OK');refresh()}catch(e){message(e.message,true)}}
