@@ -1,0 +1,51 @@
+[audio]
+# Windows/VRChat/ChatGPTで設定した4つの端点。Inputは再生、Outputは録音です。
+vrchat_output = "CABLE-A Input"
+chatgpt_input = "CABLE-A Output"
+chatgpt_output = "CABLE-B Input"
+vrchat_microphone = "CABLE-B Output"
+sample_rate = 48000
+channels = 1
+chunk_ms = 100
+
+[processes]
+chatgpt = "ChatGPT.exe"
+vrchat = "VRChat.exe"
+parsec = "parsecd.exe,parsec.exe"
+forbidden = "ollama.exe,voicevox.exe"
+
+[osc]
+target_host = "127.0.0.1"
+input_port = 9000
+listen_host = "127.0.0.1"
+output_port = 9001
+status_parameter = "VoiceAgentStatus"
+# VRChatの「マイクの動作」を切り替え（トグル）に合わせます。
+voice_input_mode = "toggle"
+mute_confirm_timeout_sec = 2.0
+mute_retry_count = 2
+
+[control]
+# LAN外には公開しないでください。初回起動時にランダムなトークンを作成します。
+bind_host = "0.0.0.0"
+port = 18765
+token_file = "control-token.txt"
+# メインPCのIPだけを指定するとより安全です。空欄は同一LAN内の全IPを許可します。
+allowed_client_ips = ""
+
+[loop_guard]
+enabled = true
+# ループ確定時にVRChatマイクを自動ミュートします。解除は必ず手動です。
+auto_mute = true
+rms_threshold = 250.0
+correlation_threshold = 0.88
+min_consecutive_matches = 3
+feature_ms = 20
+comparison_window_ms = 1000
+min_delay_ms = 100
+max_delay_ms = 5000
+
+[parsec]
+require_admin_mute_disabled = true
+# 空欄なら標準のParsec config.txt候補を確認します。
+config_paths = ""

@@ -12,6 +12,8 @@ __pycache__/
 
 .env
 .env.*
+config/chatgpt_voice.toml
+config/control-token.txt
 
 models/
 cache/

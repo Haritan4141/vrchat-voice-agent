@@ -91,6 +91,35 @@ def build_parser() -> argparse.ArgumentParser:
         help="Path to the main TOML config file.",
     )
 
+    voice_doctor_parser = subparsers.add_parser(
+        "chatgpt-voice-doctor",
+        help="Validate the ChatGPT Voice / VRChat audio routes.",
+    )
+    voice_doctor_parser.add_argument(
+        "--config",
+        type=Path,
+        default=Path("config/chatgpt_voice.toml"),
+        help="Path to the ChatGPT Voice TOML config.",
+    )
+    voice_doctor_parser.add_argument(
+        "--live-seconds",
+        type=float,
+        default=0.0,
+        help="Also sample CABLE-A/B levels for this many seconds.",
+    )
+    voice_doctor_parser.add_argument("--json", action="store_true", help="Print JSON output.")
+
+    voice_control_parser = subparsers.add_parser(
+        "voice-control-server",
+        help="Run authenticated LAN controls, OSC status and loop guard.",
+    )
+    voice_control_parser.add_argument(
+        "--config",
+        type=Path,
+        default=Path("config/chatgpt_voice.toml"),
+        help="Path to the ChatGPT Voice TOML config.",
+    )
+
     return parser
 
 
@@ -192,6 +221,10 @@ def run_pipeline(config_path: Path, save_audio: bool) -> int:
 
 
 def main(argv: list[str] | None = None) -> int:
+    for stream in (sys.stdout, sys.stderr):
+        reconfigure = getattr(stream, "reconfigure", None)
+        if reconfigure is not None:
+            reconfigure(encoding="utf-8", errors="replace")
     parser = build_parser()
     args = parser.parse_args(argv)
 
@@ -210,6 +243,18 @@ def main(argv: list[str] | None = None) -> int:
             from .gui import run_gui
 
             return run_gui(args.config)
+        if args.command == "chatgpt-voice-doctor":
+            from .voice_config import load_voice_config
+            from .voice_doctor import build_doctor_report, print_doctor_report
+
+            report = build_doctor_report(load_voice_config(args.config), args.live_seconds)
+            print_doctor_report(report, args.json)
+            return report.exit_code
+        if args.command == "voice-control-server":
+            from .control_server import run_control_server
+            from .voice_config import load_voice_config
+
+            return run_control_server(load_voice_config(args.config))
     except KeyboardInterrupt:
         print("Interrupted.", file=sys.stderr)
         return 130
@@ -219,3 +264,11 @@ def main(argv: list[str] | None = None) -> int:
 
     parser.error(f"Unknown command: {args.command}")
     return 2
+
+
+def voice_doctor_main() -> int:
+    return main(["chatgpt-voice-doctor", *sys.argv[1:]])
+
+
+def voice_control_main() -> int:
+    return main(["voice-control-server", *sys.argv[1:]])

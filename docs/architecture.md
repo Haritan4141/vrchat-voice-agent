@@ -1,135 +1,33 @@
-# Architecture Notes
+# Architecture
 
-## 結論
-
-最初のMVPは `仮想オーディオデバイスを2本使う構成` を推奨します。
-
-- ケーブルA: `VRChatの出力` を流す
-- ケーブルB: `Botの音声` をVRChatへ入れる
-
-これにより、聞き取り経路と発話経路を分離できます。
-
-## 音声フロー
+## 責務の分離
 
 ```text
-[VRChat Output]
-    |
-    v
-[Virtual Cable A]
-    |
-    +--> このツールが録音入力として取得
-    |
-    `--> 必要ならユーザーの実スピーカーへモニター
-
-[Tool]
-    |
-    +--> VAD
-    +--> STT
-    +--> LLM
-    `--> TTS
-            |
-            v
-     [Virtual Cable B]
-            |
-            v
-   [VRChat Microphone Input]
+ChatGPT Desktop Voice ── 会話生成・音声認識・音声出力
+Windows + VB-CABLE   ── A/Bの音声経路
+vrchat-voice-agent   ── 診断・監視・安全停止・OSC・LAN操作
+VRChat Avatar        ── VoiceAgentStatusの表示
 ```
 
-## キャプチャ方式の比較
+PythonサービスはChatGPTの画面操作や会話生成を行いません。旧ローカルSTT/LLM/TTSも起動しません。
 
-### 1. 仮想デバイス分離
+## 制御経路
 
-推奨度: 高
+```text
+メインPCのブラウザ
+  → HTTP/TCP 18765（Bearerトークン）
+  → サブPCのVoiceControlService
+      ├─ UDP/9000 → VRChat /input/Voice
+      ├─ UDP/9000 → /avatar/parameters/VoiceAgentStatus
+      └─ UDP/9001 ← VRChat /avatar/parameters/MuteSelf
+```
 
-- 利点
-  - Python中心で組みやすい
-  - どの音を拾うかが明確
-  - デバッグしやすい
-- 欠点
-  - Windows側の初期設定が必要
-  - モニター経路を別途考える必要がある
+ミュートは`/input/Voice`を押したあと、VRChatから返る`MuteSelf`を確認します。現在値が不明な場合でも、確認結果が希望状態と逆ならもう一度だけ切り替えるため、単純なブラインドトグルにはなりません。
 
-### 2. プロセス単位のアプリケーションループバック
+## 自己ループ検出
 
-推奨度: 中
+CABLE-AとCABLE-Bを同時に録音し、短時間ごとのRMS包絡を作ります。最近のCABLE-Aと、100〜5000ms前のCABLE-Bを正規化相関で比較します。閾値を連続して超えたときだけ警報をラッチします。
 
-- 利点
-  - VRChatの音だけを直接拾える
-  - 仮想デバイス設定を減らせる可能性がある
-- 欠点
-  - Pythonだけで完結しにくい
-  - Windows API側の実装難度が上がる
-  - OS要件に依存する
+警報時は`VoiceAgentStatus=2`にします。`auto_mute=true`の場合はVRChatマイクもミュートします。誤って会話が再開しないよう、自動ミュート解除は行いません。
 
-### 3. システム全体のループバック
-
-推奨度: 低
-
-- 利点
-  - 実装は簡単
-- 欠点
-  - 他アプリの音を混ぜやすい
-  - 会話相手の声だけを狙いにくい
-
-## 会話制御の最小仕様
-
-- 返答は短くする
-- 連投しない
-- 無音が一定時間続いたら1ターン終了とみなす
-- 発話中は入力処理を停止する
-- 同じ話題を繰り返しすぎない
-
-## 推奨ステート
-
-- `idle`
-- `listening`
-- `transcribing`
-- `thinking`
-- `speaking`
-- `cooldown`
-
-## LLMの出力ルール
-
-- 1回の返答は短め
-- 独り言を減らす
-- 質問ばかりにしない
-- 話題提供は会話が止まった時だけ
-- 露骨なAI説明は避ける
-
-## 想定レイテンシ
-
-- 音声切り出し: 0.3s - 1.0s
-- STT: 0.5s - 2.0s
-- LLM: 0.3s - 2.0s
-- TTS: 0.2s - 1.0s
-
-合計で `1.5s - 5.0s` 程度に収めると、VRChatでの自然さを保ちやすいです。
-
-## 最初の実装順
-
-1. 設定ファイル読み込み
-2. 音声デバイス一覧取得
-3. Cable A から録音
-4. 無音判定
-5. STT
-6. LLM
-7. VOICEVOX連携
-8. Cable B へ再生
-9. ログ保存
-
-## 現在の実装メモ
-
-- 音声入力: `waveIn`
-- 音声出力: `waveOut`
-- STT: `faster-whisper`
-- LLM: `Ollama HTTP API`
-- TTS: `VOICEVOX Engine HTTP API`
-
-設定ファイルで `small` / `medium` / `large-v3` を切り替えられるようにしています。
-
-## 将来の分岐
-
-- VRChat OSCで押し喋り相当を制御する
-- 物理マイクとBot音声をミックスする
-- 音声感情やキャラクター口調を切り替える
-- C#またはRustの補助プロセスでWindows音声APIを強化する
+この方式は音声内容を保存せず、音量の時間変化だけをメモリ上で比較します。
