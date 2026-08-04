@@ -62,6 +62,18 @@ def _process_rows() -> list[tuple[str, str]]:
     return rows
 
 
+def _is_legacy_runtime(command: str) -> bool:
+    normalized = " ".join(command.casefold().split())
+    return any(
+        marker in f" {normalized} "
+        for marker in (
+            " -m vrchat_ai_tool run ",
+            " vrchat-ai-tool run ",
+            " vrchat-ai-tool.exe run ",
+        )
+    )
+
+
 def _matches_endpoint(snapshot: WindowsAudioSnapshot, name: str, direction: str):
     return [endpoint for endpoint in snapshot.find(name, direction) if endpoint.state == "active"]
 
@@ -300,7 +312,7 @@ def build_doctor_report(
 
     forbidden = split_names(config.processes.forbidden)
     active_forbidden = sorted({name for name in running_names if name in forbidden})
-    legacy_runtime = any("vrchat_ai_tool" in command and " run" in command for _name, command in process_rows)
+    legacy_runtime = any(_is_legacy_runtime(command) for _name, command in process_rows)
     if active_forbidden or legacy_runtime:
         detail = ", ".join(active_forbidden + (["python -m vrchat_ai_tool run"] if legacy_runtime else []))
         checks.append(VoiceCheck(CheckLevel.ERROR, "process.double_reply", "二重応答の危険", detail))

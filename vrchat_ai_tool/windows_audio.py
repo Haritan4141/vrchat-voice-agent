@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import warnings
 from dataclasses import asdict, dataclass
 from typing import Any
 
@@ -41,6 +42,8 @@ class WindowsAudioSnapshot:
             if direction is not None and endpoint.direction != direction:
                 continue
             candidate = normalize_name(endpoint.name)
+            if not candidate:
+                continue
             if query == candidate or query in candidate or candidate in query:
                 result.append(endpoint)
         return result
@@ -51,11 +54,13 @@ class WindowsAudioSnapshot:
             (endpoint, session)
             for endpoint in self.endpoints
             for session in endpoint.sessions
-            if session.process_name.casefold() in wanted
+            if normalize_name(session.process_name) in wanted
         ]
 
 
-def normalize_name(value: str) -> str:
+def normalize_name(value: str | None) -> str:
+    if not value:
+        return ""
     return " ".join(value.casefold().replace("(vb-audio virtual cable a)", "").replace(
         "(vb-audio virtual cable b)", ""
     ).split())
@@ -94,8 +99,20 @@ def collect_windows_audio_snapshot() -> WindowsAudioSnapshot:
                     default_ids.pop((direction, role_name), None)
 
         endpoints: list[AudioEndpointInfo] = []
-        for device in AudioUtilities.GetAllDevices(EDataFlow.eAll.value, 15):
+        # Only active endpoints can participate in the current route. Stale
+        # endpoint records may have incomplete property stores after removal.
+        with warnings.catch_warnings():
+            warnings.filterwarnings("ignore", category=UserWarning, module=r"pycaw\.utils")
+            devices = AudioUtilities.GetAllDevices(EDataFlow.eAll.value, 1)
+
+        for device in devices:
             direction = "capture" if device.id.startswith("{0.0.1.") else "render"
+            try:
+                friendly_name = device.FriendlyName
+            except Exception:  # noqa: BLE001 - an unreadable endpoint cannot be validated
+                friendly_name = None
+            if not friendly_name:
+                continue
             sessions: list[AudioSessionInfo] = []
             try:
                 session_enumerator = device.AudioSessionManager.GetSessionEnumerator()
@@ -107,6 +124,7 @@ def collect_windows_audio_snapshot() -> WindowsAudioSnapshot:
                         process_name = process.name() if process is not None else "System Sounds"
                     except psutil.Error:
                         process_name = f"PID {session.ProcessId}"
+                    process_name = process_name or f"PID {session.ProcessId}"
                     volume = session.SimpleAudioVolume
                     sessions.append(
                         AudioSessionInfo(
@@ -126,9 +144,9 @@ def collect_windows_audio_snapshot() -> WindowsAudioSnapshot:
             endpoints.append(
                 AudioEndpointInfo(
                     id=device.id,
-                    name=device.FriendlyName,
+                    name=friendly_name,
                     direction=direction,
-                    state=getattr(device.state, "name", str(device.state)).casefold(),
+                    state=str(getattr(device.state, "name", device.state)).casefold(),
                     is_default_console=default_ids.get((direction, "console")) == device.id,
                     is_default_multimedia=default_ids.get((direction, "multimedia")) == device.id,
                     is_default_communications=default_ids.get((direction, "communications")) == device.id,

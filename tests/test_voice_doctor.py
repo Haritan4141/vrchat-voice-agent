@@ -12,7 +12,7 @@ from vrchat_ai_tool.voice_config import (
     VoiceParsecConfig,
     VoiceProcessConfig,
 )
-from vrchat_ai_tool.voice_doctor import build_doctor_report
+from vrchat_ai_tool.voice_doctor import _is_legacy_runtime, build_doctor_report
 from vrchat_ai_tool.windows_audio import (
     AudioEndpointInfo,
     AudioSessionInfo,
@@ -25,6 +25,21 @@ def session(name: str, pid: int) -> AudioSessionInfo:
 
 
 class VoiceDoctorTests(unittest.TestCase):
+    def test_legacy_runtime_detection_does_not_match_uv_doctor(self) -> None:
+        self.assertTrue(_is_legacy_runtime("python -m vrchat_ai_tool run --config settings.toml"))
+        self.assertTrue(_is_legacy_runtime("vrchat-ai-tool.exe run --config settings.toml"))
+        self.assertFalse(
+            _is_legacy_runtime(
+                "uv run chatgpt-voice-doctor --config C:\\repo\\vrchat_ai_tool\\voice.toml"
+            )
+        )
+
+    def test_unnamed_stale_endpoint_is_ignored(self) -> None:
+        snapshot = WindowsAudioSnapshot(
+            endpoints=(AudioEndpointInfo("stale", None, "render", "active"),)  # type: ignore[arg-type]
+        )
+        self.assertEqual(snapshot.find("CABLE-A Input", "render"), [])
+
     def test_expected_routes_are_all_ok(self) -> None:
         config = ChatGPTVoiceConfig(
             audio=VoiceAudioConfig(),

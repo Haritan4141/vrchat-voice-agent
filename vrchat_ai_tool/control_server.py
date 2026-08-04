@@ -3,6 +3,7 @@ from __future__ import annotations
 import hmac
 import json
 import secrets
+import socket
 import threading
 from collections.abc import Callable
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
@@ -259,7 +260,15 @@ def run_control_server(
     server.daemon_threads = True
     try:
         service.start()
-        print(f"Voice control: http://{config.control.bind_host}:{config.control.port}/")
+        print(f"Voice control (this PC): http://127.0.0.1:{config.control.port}/")
+        if config.control.bind_host not in {"127.0.0.1", "localhost"}:
+            try:
+                addresses = socket.gethostbyname_ex(socket.gethostname())[2]
+            except OSError:
+                addresses = []
+            for address in sorted({value for value in addresses if not value.startswith("127.")}):
+                print(f"Voice control (LAN):     http://{address}:{config.control.port}/")
+        print(f"Listening on: {config.control.bind_host}:{config.control.port}")
         print(f"Token file: {token_path}")
         if created:
             print(f"New token: {token}")
