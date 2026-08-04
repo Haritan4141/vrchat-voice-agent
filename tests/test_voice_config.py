@@ -18,7 +18,7 @@ class VoiceConfigTests(unittest.TestCase):
             self.assertTrue(config.loop_guard.auto_mute)
             self.assertEqual(
                 resolve_config_relative(config, config.control.token_file),
-                Path(directory) / "control-token.txt",
+                (Path(directory) / "control-token.txt").resolve(),
             )
 
     def test_unknown_key_is_rejected(self) -> None:
