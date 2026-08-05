@@ -24,12 +24,13 @@ from vrchat_ai_tool.voice_config import (
 class FakeService:
     def __init__(self) -> None:
         self.muted = False
+        self.loop_enabled = True
 
     def snapshot(self) -> dict[str, object]:
         return {
             "status": 0,
             "muted": self.muted,
-            "loop": {"running": True, "triggered": False},
+            "loop": {"enabled": self.loop_enabled, "running": self.loop_enabled, "triggered": False},
             "last_error": "",
         }
 
@@ -45,12 +46,17 @@ class FakeService:
     def reset_loop(self) -> None:
         return
 
+    def set_loop_guard_enabled(self, enabled: bool) -> None:
+        self.loop_enabled = enabled
+
 
 class ControlServerTests(unittest.TestCase):
     def test_control_page_persists_token_in_browser(self) -> None:
         self.assertIn("localStorage.setItem('voiceAgentToken'", CONTROL_HTML)
         self.assertIn("sessionStorage.getItem('voiceAgentToken'", CONTROL_HTML)
         self.assertIn("forgetToken()", CONTROL_HTML)
+        self.assertIn("/api/loop/enabled", CONTROL_HTML)
+        self.assertIn("監視を無効化", CONTROL_HTML)
 
     def test_token_is_generated_once_and_reused(self) -> None:
         with tempfile.TemporaryDirectory() as directory:
@@ -90,6 +96,17 @@ class ControlServerTests(unittest.TestCase):
                 payload = json.loads(response.read().decode("utf-8"))
             self.assertTrue(payload["ok"])
             self.assertTrue(service.muted)
+
+            request = urllib.request.Request(
+                base + "/api/loop/enabled",
+                data=json.dumps({"enabled": False}).encode("utf-8"),
+                method="POST",
+                headers={"Authorization": "Bearer " + "x" * 32, "Content-Type": "application/json"},
+            )
+            with urllib.request.urlopen(request, timeout=2) as response:
+                payload = json.loads(response.read().decode("utf-8"))
+            self.assertTrue(payload["ok"])
+            self.assertFalse(service.loop_enabled)
         finally:
             server.shutdown()
             server.server_close()

@@ -15,6 +15,7 @@ class LoopDetection:
     score: float = 0.0
     delay_ms: int | None = None
     consecutive_matches: int = 0
+    candidate_duration_ms: int = 0
     triggered: bool = False
 
     def to_dict(self) -> dict[str, object]:
@@ -30,17 +31,32 @@ class LoopDetector:
         self.feature_samples = max(1, sample_rate * config.feature_ms // 1000)
         self.window_bins = max(4, config.comparison_window_ms // config.feature_ms)
         self.min_lag_bins = max(1, config.min_delay_ms // config.feature_ms)
-        self.max_lag_bins = max(self.min_lag_bins, config.max_delay_ms // config.feature_ms)
+        effective_max_delay_ms = min(config.max_delay_ms, config.reliable_max_delay_ms)
+        self.max_lag_bins = max(
+            self.min_lag_bins,
+            effective_max_delay_ms // config.feature_ms,
+        )
+        self.delay_tolerance_bins = max(1, config.delay_tolerance_ms // config.feature_ms)
         self.max_history_bins = self.window_bins + self.max_lag_bins + 10
         self._a_features = np.empty(0, dtype=np.float32)
         self._b_features = np.empty(0, dtype=np.float32)
         self._consecutive = 0
+        self._candidate_lag_bins: int | None = None
+        self._candidate_duration_bins = 0
         self._latched = False
+        self._latched_score = 0.0
+        self._latched_delay_ms: int | None = None
         self.last = LoopDetection()
 
     def reset(self) -> None:
+        self._a_features = np.empty(0, dtype=np.float32)
+        self._b_features = np.empty(0, dtype=np.float32)
         self._consecutive = 0
+        self._candidate_lag_bins = None
+        self._candidate_duration_bins = 0
         self._latched = False
+        self._latched_score = 0.0
+        self._latched_delay_ms = None
         self.last = LoopDetection()
 
     def _features(self, pcm: bytes) -> np.ndarray:
@@ -67,7 +83,13 @@ class LoopDetector:
         available = min(self._a_features.size, self._b_features.size)
         required = self.window_bins + self.min_lag_bins
         if available < required:
-            self.last = LoopDetection(consecutive_matches=self._consecutive, triggered=self._latched)
+            self.last = LoopDetection(
+                score=self._latched_score if self._latched else 0.0,
+                delay_ms=self._latched_delay_ms if self._latched else None,
+                consecutive_matches=self._consecutive,
+                candidate_duration_ms=self._candidate_duration_bins * self.config.feature_ms,
+                triggered=self._latched,
+            )
             return self.last
 
         a_window = self._a_features[-self.window_bins :].astype(np.float64)
@@ -95,13 +117,46 @@ class LoopDetector:
                 best_lag = lag
 
         matched = best_lag is not None and best_score >= self.config.correlation_threshold
-        self._consecutive = self._consecutive + 1 if matched else 0
-        if self._consecutive >= self.config.min_consecutive_matches:
+        stable_lag = (
+            matched
+            and self._candidate_lag_bins is not None
+            and abs(best_lag - self._candidate_lag_bins) <= self.delay_tolerance_bins
+        )
+        if stable_lag:
+            self._consecutive += 1
+            self._candidate_duration_bins += length
+        elif matched:
+            self._consecutive = 1
+            self._candidate_lag_bins = best_lag
+            self._candidate_duration_bins = length
+        else:
+            self._consecutive = 0
+            self._candidate_lag_bins = None
+            self._candidate_duration_bins = 0
+
+        candidate_duration_ms = self._candidate_duration_bins * self.config.feature_ms
+        if (
+            not self._latched
+            and self._consecutive >= self.config.min_consecutive_matches
+            and candidate_duration_ms >= self.config.min_match_duration_ms
+        ):
             self._latched = True
+            self._latched_score = round(max(0.0, best_score), 4)
+            self._latched_delay_ms = (
+                best_lag * self.config.feature_ms if best_lag is not None else None
+            )
+
+        visible_score = self._latched_score if self._latched else round(max(0.0, best_score), 4)
+        visible_delay_ms = (
+            self._latched_delay_ms
+            if self._latched
+            else (best_lag * self.config.feature_ms if best_lag is not None else None)
+        )
         self.last = LoopDetection(
-            score=round(max(0.0, best_score), 4),
-            delay_ms=best_lag * self.config.feature_ms if best_lag is not None else None,
+            score=visible_score,
+            delay_ms=visible_delay_ms,
             consecutive_matches=self._consecutive,
+            candidate_duration_ms=candidate_duration_ms,
             triggered=self._latched,
         )
         return self.last
@@ -131,6 +186,7 @@ class LoopGuardService:
     def snapshot(self) -> dict[str, object]:
         with self._lock:
             return {
+                "enabled": self.config.loop_guard.enabled,
                 "running": self.running,
                 "auto_mute": self.config.loop_guard.auto_mute,
                 "cable_a_rms": round(self._last_a_rms, 1),
@@ -141,6 +197,15 @@ class LoopGuardService:
     def reset(self) -> None:
         with self._lock:
             self.detector.reset()
+
+    def set_enabled(self, enabled: bool) -> None:
+        self.config.loop_guard.enabled = enabled
+        if enabled:
+            self.reset()
+            self.start()
+        else:
+            self.stop()
+            self.reset()
 
     def start(self) -> None:
         if self.running or not self.config.loop_guard.enabled:

@@ -60,6 +60,7 @@ IPが複数ある場合はカンマ区切りです。`127.0.0.1`は常に許可�
 
 - 緊急ミュート／ミュート解除
 - ループ警報の手動リセット
+- 自己ループ監視の有効化／無効化（設定はサブPCへ保存）
 - `VoiceAgentStatus`の0〜3への切り替え
 - CABLE-A/Bの直近RMSとループ判定の確認
 
@@ -67,7 +68,9 @@ IPが複数ある場合はカンマ区切りです。`127.0.0.1`は常に許可�
 
 ## 4. 自己ループ自動停止
 
-初期設定では、ループ確定時の自動ミュートが有効です。検出後のミュート解除は必ず手動です。閾値の調整中だけ自動ミュートを止めたい場合は、次を変更します。
+初期設定では、ループ確定時の自動ミュートが有効です。検出後のミュート解除は必ず手動です。監視自体はメインPCの操作画面から有効／無効を切り替えられ、選択は`config/chatgpt_voice.toml`へ保存されます。監視を無効にしても、その時点のミュートは自動解除されません。
+
+監視は続けたまま、閾値の調整中だけ自動ミュートを止めたい場合は、次を変更します。
 
 ```toml
 [loop_guard]
@@ -76,16 +79,21 @@ auto_mute = false
 
 調整する主な値:
 
-- `correlation_threshold`: 高くすると誤検出しにくい（既定0.88）
-- `min_consecutive_matches`: 高くすると確定まで慎重になる（既定3）
+- `correlation_threshold`: 高くすると誤検出しにくい（既定0.95）
+- `min_consecutive_matches`: 高くすると確定まで慎重になる（既定5）
 - `rms_threshold`: 小さなノイズを比較対象から外す（既定250）
 - `min_delay_ms` / `max_delay_ms`: BからAへ戻るまでの探索範囲
+- `reliable_max_delay_ms`: 偶然の一致を避ける探索遅延の安全上限（既定1800ms）
+- `delay_tolerance_ms`: 連続一致として許容する遅延の揺れ幅（既定160ms）
+- `min_match_duration_ms`: 同じ遅延の一致が続くべき最低時間（既定1500ms）
+
+既存の設定ファイルに新しい3項目がなくても、上記の既定値が自動的に適用されます。今回のような2秒を超える単発一致は、既定設定ではループ確定になりません。
 
 検出後は自動解除しません。音声データはファイルへ保存しません。
 
-## 5. アバター状態表示（Unity作業は未実施）
+## 5. アバター状態表示
 
-Unity側は別セッションで作業中のため、この実装では変更していません。次回のUnity作業で、インポート済みの`Assets/StatusHalo_for_PC`と次のパラメーターを接続します。
+Unityプロジェクトでは、`Assets/StatusHalo_for_PC`のParallax版を使った`VoiceAgentStatusHalo`をアバタールートへ設置済みです。表示は共通のIntパラメーター`VoiceAgentStatus`で切り替わります。
 
 | 値 | 表示 | 用途 |
 |---:|---|---|
@@ -94,7 +102,7 @@ Unity側は別セッションで作業中のため、この実装では変更し
 | 2 | ERROR | エラー／ループ警報 |
 | 3 | MAINTENANCE | 調整中（将来用） |
 
-VRChat Expression Parametersに次を追加します。
+Modular Avatarがビルド時に次のVRChat Expression Parameterを追加します。
 
 ```text
 Name: VoiceAgentStatus
@@ -104,9 +112,11 @@ Saved: false
 Synced: true
 ```
 
-固有のAI名はパラメーター、コード、表示仕様に使用していません。`Synced=true`にすることで、ステータスヘイローの変化を他ユーザーにも同期できます。
+固有のAI名はパラメーター、コード、表示仕様に使用していません。`Synced=true`のため、ステータスヘイローの変化は他ユーザーにも同期されます。
 
-Animator側では値0〜3をヘイローの表示・色・テキスト状態へ割り当てます。アセット固有の階層やAnimator構成は、Unityを直接操作できる次のセッションで確認して接続します。
+操作サーバーはOSCの`/avatar/parameters/VoiceAgentStatus`へ値を送ります。Expressions Menuには`AI STATUS`サブメニューが追加され、`0 STOPPED`、`1 ONLINE`、`2 ERROR`、`3 MAINTENANCE`から同じパラメーターを手動変更できます。メニュー用の内部Boolはローカル専用で、選択結果のIntだけが同期されます。
+
+生成・接続用のEditorスクリプトと生成物はUnityプロジェクトの`Assets/VoiceAgentStatusHalo`にあります。再生成する場合はアバタールートを選択し、Unityメニューの`Tools > Voice Agent Status Halo > Install Or Rebuild On Selected Avatar`を実行します。
 
 ## 6. 終了
 

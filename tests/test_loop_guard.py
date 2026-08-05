@@ -35,6 +35,13 @@ class LoopDetectorTests(unittest.TestCase):
         self.assertTrue(result.triggered)
         self.assertEqual(result.delay_ms, 200)
         self.assertGreaterEqual(result.score, 0.99)
+
+        unrelated = np.arange(5, dtype=np.float32) + 300
+        result = detector.add_features(unrelated, unrelated[::-1].copy())
+        self.assertTrue(result.triggered)
+        self.assertEqual(result.delay_ms, 200)
+        self.assertGreaterEqual(result.score, 0.99)
+
         detector.reset()
         self.assertFalse(detector.last.triggered)
 
@@ -45,6 +52,36 @@ class LoopDetectorTests(unittest.TestCase):
             a = rng.uniform(200, 1800, 5).astype(np.float32)
             b = rng.uniform(200, 1800, 5).astype(np.float32)
             result = detector.add_features(a, b)
+        self.assertFalse(result.triggered)
+
+    def test_high_correlation_short_transient_does_not_trigger(self) -> None:
+        rng = np.random.default_rng(19)
+        cable_b = rng.uniform(200, 1800, 60).astype(np.float32)
+        lag = 10
+        cable_a = np.concatenate((np.zeros(lag, dtype=np.float32), cable_b[:-lag]))
+        detector = LoopDetector(self.make_config(), sample_rate=48000)
+
+        for start in range(0, cable_a.size, 5):
+            result = detector.add_features(cable_a[start : start + 5], cable_b[start : start + 5])
+
+        self.assertGreaterEqual(result.score, 0.99)
+        self.assertFalse(result.triggered)
+        self.assertLess(result.candidate_duration_ms, 1500)
+
+    def test_delay_beyond_reliable_limit_is_ignored(self) -> None:
+        rng = np.random.default_rng(23)
+        cable_b = rng.uniform(200, 1800, 300).astype(np.float32)
+        lag = 106  # 2120 ms, matching the observed false positive.
+        cable_a = np.concatenate((np.zeros(lag, dtype=np.float32), cable_b[:-lag]))
+        config = self.make_config()
+        config.max_delay_ms = 5000
+        config.reliable_max_delay_ms = 1800
+        config.correlation_threshold = 0.99
+        detector = LoopDetector(config, sample_rate=48000)
+
+        for start in range(0, cable_a.size, 5):
+            result = detector.add_features(cable_a[start : start + 5], cable_b[start : start + 5])
+
         self.assertFalse(result.triggered)
 
 

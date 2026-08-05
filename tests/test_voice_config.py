@@ -4,7 +4,11 @@ import tempfile
 import unittest
 from pathlib import Path
 
-from vrchat_ai_tool.voice_config import load_voice_config, resolve_config_relative
+from vrchat_ai_tool.voice_config import (
+    load_voice_config,
+    resolve_config_relative,
+    save_loop_guard_enabled,
+)
 
 
 class VoiceConfigTests(unittest.TestCase):
@@ -20,6 +24,28 @@ class VoiceConfigTests(unittest.TestCase):
                 resolve_config_relative(config, config.control.token_file),
                 (Path(directory) / "control-token.txt").resolve(),
             )
+            self.assertEqual(config.loop_guard.reliable_max_delay_ms, 1800)
+            self.assertEqual(config.loop_guard.min_match_duration_ms, 1500)
+
+    def test_loop_guard_switch_is_persisted_without_losing_other_settings(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            path = Path(directory) / "voice.toml"
+            path.write_text(
+                "# keep this comment\n[loop_guard]\nenabled = true\nauto_mute = true\n\n"
+                "[osc]\ntarget_host = \"127.0.0.1\"\n",
+                encoding="utf-8",
+            )
+            config = load_voice_config(path)
+
+            save_loop_guard_enabled(config, False)
+
+            saved = path.read_text(encoding="utf-8")
+            self.assertIn("# keep this comment", saved)
+            self.assertIn("enabled = false", saved)
+            self.assertIn("auto_mute = true", saved)
+            self.assertIn('[osc]\ntarget_host = "127.0.0.1"', saved)
+            self.assertFalse(config.loop_guard.enabled)
+            self.assertFalse(load_voice_config(path).loop_guard.enabled)
 
     def test_unknown_key_is_rejected(self) -> None:
         with tempfile.TemporaryDirectory() as directory:

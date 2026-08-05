@@ -12,7 +12,12 @@ from typing import Any
 
 from .loop_guard import LoopDetection, LoopGuardService
 from .osc_control import AgentStatus, VRChatOscController
-from .voice_config import ChatGPTVoiceConfig, resolve_config_relative, split_names
+from .voice_config import (
+    ChatGPTVoiceConfig,
+    resolve_config_relative,
+    save_loop_guard_enabled,
+    split_names,
+)
 
 CONTROL_HTML = r"""<!doctype html>
 <html lang="ja"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width">
@@ -43,6 +48,10 @@ small{color:#aac0cf}dl{display:grid;grid-template-columns:150px 1fr;gap:6px;marg
 <button class="ok" onclick="post('/api/mic/unmute')">ミュート解除</button>
 <button class="warn" onclick="post('/api/loop/reset')">ループ警報リセット</button></div>
 <small>ループ警報中は、先に警報をリセットしないとミュート解除できません。</small></div>
+<div class="card"><h2>自己ループ対策</h2><div class="grid">
+<button class="ok" onclick="setLoopGuard(true)">監視を有効化</button>
+<button class="danger" onclick="setLoopGuard(false)">監視を無効化</button></div>
+<small>設定はサブPCへ保存され、次回起動時にも引き継がれます。無効中も手動ミュートは使えます。</small></div>
 <div class="card"><h2>アバター状態表示</h2><div class="grid">
 <button onclick="setStatus(0)">0 STOPPED</button><button class="ok" onclick="setStatus(1)">1 ONLINE</button>
 <button class="danger" onclick="setStatus(2)">2 ERROR</button><button class="warn" onclick="setStatus(3)">3 MAINTENANCE</button>
@@ -55,10 +64,10 @@ function forgetToken(){localStorage.removeItem('voiceAgentToken');sessionStorage
 async function request(path,opts={}){opts.headers={...(opts.headers||{}),Authorization:'Bearer '+token(),'Content-Type':'application/json'};
  const response=await fetch(path,opts); const data=await response.json(); if(!response.ok)throw new Error(data.error||response.statusText); return data}
 async function post(path,body={}){try{const d=await request(path,{method:'POST',body:JSON.stringify(body)}); message(d.message||'OK');refresh()}catch(e){message(e.message,true)}}
-function setStatus(value){post('/api/status',{value})} function message(value,error=false){const e=document.getElementById('message');e.textContent=value;e.style.color=error?'#ff9cab':'#9dd9ff'}
+function setStatus(value){post('/api/status',{value})} function setLoopGuard(enabled){post('/api/loop/enabled',{enabled})} function message(value,error=false){const e=document.getElementById('message');e.textContent=value;e.style.color=error?'#ff9cab':'#9dd9ff'}
 async function refresh(){if(!token())return;try{const d=await request('/api/status');document.getElementById('agentStatus').textContent=d.status+' '+names[d.status];
  const m=d.muted===null?'未確認':(d.muted?'MUTED':'OPEN');document.getElementById('mic').textContent=m;
- document.getElementById('loop').textContent=d.loop.triggered?`LOOP DETECTED (${d.loop.score}, ${d.loop.delay_ms}ms)`:(d.loop.running?'監視中':'停止中');
+ document.getElementById('loop').textContent=d.loop.enabled===false?'無効':(d.loop.triggered?`LOOP DETECTED (${d.loop.score}, ${d.loop.delay_ms}ms)`:(d.loop.running?'監視中':'停止中'));
  document.getElementById('levels').textContent=`${d.loop.cable_a_rms} / ${d.loop.cable_b_rms}`;if(d.last_error)message(d.last_error,true)}catch(e){message(e.message,true)}}
 document.getElementById('token').value=token();if(token()){refresh();timer=setInterval(refresh,1500)}
 </script></body></html>"""
@@ -148,6 +157,13 @@ class VoiceControlService:
         with self._lock:
             self.last_error = ""
 
+    def set_loop_guard_enabled(self, enabled: bool) -> None:
+        save_loop_guard_enabled(self.config, enabled)
+        self.loop_guard.set_enabled(enabled)
+        with self._lock:
+            if self.last_error.startswith(("Self-loop detected", "Loop guard stopped")):
+                self.last_error = ""
+
 
 def make_handler(
     service: VoiceControlService,
@@ -233,6 +249,12 @@ def make_handler(
                 elif self.path == "/api/loop/reset":
                     service.reset_loop()
                     message = "ループ警報をリセットしました（ミュートは解除していません）"
+                elif self.path == "/api/loop/enabled":
+                    enabled = body["enabled"]
+                    if not isinstance(enabled, bool):
+                        raise TypeError("enabled must be true or false")
+                    service.set_loop_guard_enabled(enabled)
+                    message = "自己ループ監視を有効にしました" if enabled else "自己ループ監視を無効にしました"
                 else:
                     self._json(404, {"error": "not found"})
                     return

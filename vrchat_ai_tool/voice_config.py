@@ -54,12 +54,15 @@ class VoiceLoopGuardConfig:
     enabled: bool = True
     auto_mute: bool = True
     rms_threshold: float = 250.0
-    correlation_threshold: float = 0.88
-    min_consecutive_matches: int = 3
+    correlation_threshold: float = 0.95
+    min_consecutive_matches: int = 5
     feature_ms: int = 20
-    comparison_window_ms: int = 1000
+    comparison_window_ms: int = 1500
     min_delay_ms: int = 100
-    max_delay_ms: int = 5000
+    max_delay_ms: int = 1800
+    reliable_max_delay_ms: int = 1800
+    delay_tolerance_ms: int = 160
+    min_match_duration_ms: int = 1500
 
 
 @dataclass(slots=True)
@@ -123,6 +126,46 @@ def resolve_config_relative(config: ChatGPTVoiceConfig, value: str) -> Path:
     if path.is_absolute():
         return path
     return config.source_path.parent / path
+
+
+def save_loop_guard_enabled(config: ChatGPTVoiceConfig, enabled: bool) -> None:
+    """Persist the loop guard switch without rewriting unrelated TOML settings."""
+    path = config.source_path
+    text = path.read_text(encoding="utf-8")
+    newline = "\r\n" if "\r\n" in text else "\n"
+    lines = text.splitlines()
+    section_start: int | None = None
+    section_end = len(lines)
+
+    for index, line in enumerate(lines):
+        stripped = line.strip()
+        if stripped == "[loop_guard]":
+            section_start = index
+            continue
+        if section_start is not None and stripped.startswith("[") and stripped.endswith("]"):
+            section_end = index
+            break
+
+    value = "true" if enabled else "false"
+    if section_start is None:
+        if lines and lines[-1].strip():
+            lines.append("")
+        lines.extend(("[loop_guard]", f"enabled = {value}"))
+    else:
+        for index in range(section_start + 1, section_end):
+            candidate = lines[index].lstrip()
+            if candidate.startswith("enabled") and candidate[len("enabled") :].lstrip().startswith("="):
+                indent = lines[index][: len(lines[index]) - len(candidate)]
+                lines[index] = f"{indent}enabled = {value}"
+                break
+        else:
+            lines.insert(section_start + 1, f"enabled = {value}")
+
+    updated = newline.join(lines) + newline
+    temporary = path.with_name(path.name + ".tmp")
+    temporary.write_text(updated, encoding="utf-8", newline="")
+    temporary.replace(path)
+    config.loop_guard.enabled = enabled
 
 
 def split_names(value: str) -> tuple[str, ...]:
