@@ -1,11 +1,20 @@
 from __future__ import annotations
 
 import unittest
+from pathlib import Path
 
 import numpy as np
 
-from vrchat_ai_tool.loop_guard import LoopDetector
-from vrchat_ai_tool.voice_config import VoiceLoopGuardConfig
+from vrchat_ai_tool.loop_guard import LoopDetector, LoopGuardService
+from vrchat_ai_tool.voice_config import (
+    ChatGPTVoiceConfig,
+    VoiceAudioConfig,
+    VoiceControlConfig,
+    VoiceLoopGuardConfig,
+    VoiceOscConfig,
+    VoiceParsecConfig,
+    VoiceProcessConfig,
+)
 
 
 class LoopDetectorTests(unittest.TestCase):
@@ -83,6 +92,38 @@ class LoopDetectorTests(unittest.TestCase):
             result = detector.add_features(cable_a[start : start + 5], cable_b[start : start + 5])
 
         self.assertFalse(result.triggered)
+
+
+class LoopGuardServiceTests(unittest.TestCase):
+    def make_config(self) -> ChatGPTVoiceConfig:
+        return ChatGPTVoiceConfig(
+            audio=VoiceAudioConfig(),
+            processes=VoiceProcessConfig(),
+            osc=VoiceOscConfig(),
+            control=VoiceControlConfig(),
+            loop_guard=VoiceLoopGuardConfig(),
+            parsec=VoiceParsecConfig(),
+            source_path=Path("chatgpt_voice.toml"),
+        )
+
+    def test_motion_callback_failure_is_reported_once_and_does_not_raise(self) -> None:
+        errors: list[str] = []
+
+        def fail(_rms: float) -> None:
+            raise RuntimeError("OSC unavailable")
+
+        service = LoopGuardService(
+            self.make_config(),
+            lambda _detection: None,
+            lambda _detail: None,
+            on_cable_b_level=fail,
+            on_cable_b_level_error=errors.append,
+        )
+
+        service._publish_cable_b_level(100.0)
+        service._publish_cable_b_level(200.0)
+
+        self.assertEqual(errors, ["OSC unavailable"])
 
 
 if __name__ == "__main__":

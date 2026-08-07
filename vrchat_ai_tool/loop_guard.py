@@ -168,16 +168,21 @@ class LoopGuardService:
         config: ChatGPTVoiceConfig,
         on_trigger: Callable[[LoopDetection], None],
         on_error: Callable[[str], None],
+        on_cable_b_level: Callable[[float], None] | None = None,
+        on_cable_b_level_error: Callable[[str], None] | None = None,
     ) -> None:
         self.config = config
         self.detector = LoopDetector(config.loop_guard, config.audio.sample_rate)
         self.on_trigger = on_trigger
         self.on_error = on_error
+        self.on_cable_b_level = on_cable_b_level
+        self.on_cable_b_level_error = on_cable_b_level_error
         self._stop = threading.Event()
         self._thread: threading.Thread | None = None
         self._lock = threading.Lock()
         self._last_a_rms = 0.0
         self._last_b_rms = 0.0
+        self._cable_b_callback_failed = False
 
     @property
     def running(self) -> bool:
@@ -200,15 +205,13 @@ class LoopGuardService:
 
     def set_enabled(self, enabled: bool) -> None:
         self.config.loop_guard.enabled = enabled
-        if enabled:
-            self.reset()
-            self.start()
-        else:
-            self.stop()
-            self.reset()
+        self.reset()
+        # Audio capture also feeds avatar motion, so keep it running even when
+        # correlation-based loop detection is disabled.
+        self.start()
 
     def start(self) -> None:
-        if self.running or not self.config.loop_guard.enabled:
+        if self.running:
             return
         self._stop.clear()
         self._thread = threading.Thread(target=self._run, name="voice-loop-guard", daemon=True)
@@ -249,7 +252,12 @@ class LoopGuardService:
                 with self._lock:
                     self._last_a_rms = pcm16le_rms(a_pcm)
                     self._last_b_rms = pcm16le_rms(b_pcm)
-                    detection = self.detector.add_pcm(a_pcm, b_pcm)
+                    if self.config.loop_guard.enabled:
+                        detection = self.detector.add_pcm(a_pcm, b_pcm)
+                    else:
+                        detection = self.detector.last
+                    cable_b_rms = self._last_b_rms
+                self._publish_cable_b_level(cable_b_rms)
                 if detection.triggered and not was_triggered:
                     was_triggered = True
                     self.on_trigger(detection)
@@ -260,3 +268,18 @@ class LoopGuardService:
         finally:
             for recorder in recorders:
                 recorder.close()
+
+    def _publish_cable_b_level(self, rms: float) -> None:
+        """Keep avatar-motion failures from stopping the safety monitor."""
+        callback = self.on_cable_b_level
+        if callback is None:
+            return
+        try:
+            callback(rms)
+            self._cable_b_callback_failed = False
+        except Exception as exc:  # noqa: BLE001 - isolate optional motion output failures
+            if self._cable_b_callback_failed:
+                return
+            self._cable_b_callback_failed = True
+            if self.on_cable_b_level_error is not None:
+                self.on_cable_b_level_error(str(exc))

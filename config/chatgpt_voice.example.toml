@@ -20,6 +20,10 @@ input_port = 9000
 listen_host = "127.0.0.1"
 output_port = 9001
 status_parameter = "VoiceAgentStatus"
+motion_enabled_parameter = "VoiceAgentMotionEnabled"
+motion_activity_parameter = "VoiceAgentActivity"
+motion_energy_parameter = "VoiceAgentEnergy"
+motion_gesture_parameter = "VoiceAgentGesture"
 # VRChatの「マイクの動作」を切り替え（トグル）に合わせます。
 voice_input_mode = "toggle"
 mute_confirm_timeout_sec = 2.0
@@ -49,6 +53,22 @@ reliable_max_delay_ms = 1800
 # 一致とみなす遅延の揺れ幅と、その遅延が継続すべき最低時間です。
 delay_tolerance_ms = 160
 min_match_duration_ms = 1500
+
+[motion]
+# CABLE-B上のChatGPT Voice音声から、待機・発話・収束と自然な仕草を制御します。
+enabled = true
+speech_on_rms = 350.0
+speech_off_rms = 180.0
+energy_floor_rms = 220.0
+energy_ceiling_rms = 4000.0
+attack_ms = 250
+release_ms = 700
+settling_ms = 550
+energy_smoothing = 0.28
+idle_gesture_min_sec = 8.0
+idle_gesture_max_sec = 18.0
+speaking_gesture_min_sec = 2.8
+speaking_gesture_max_sec = 5.8
 
 [parsec]
 require_admin_mute_disabled = true

@@ -11,11 +11,13 @@ from pathlib import Path
 from typing import Any
 
 from .loop_guard import LoopDetection, LoopGuardService
+from .motion_control import MotionService
 from .osc_control import AgentStatus, VRChatOscController
 from .voice_config import (
     ChatGPTVoiceConfig,
     resolve_config_relative,
     save_loop_guard_enabled,
+    save_motion_enabled,
     split_names,
 )
 
@@ -41,7 +43,8 @@ small{color:#aac0cf}dl{display:grid;grid-template-columns:150px 1fr;gap:6px;marg
 <small>初回接続後はこのブラウザに保存され、次回から自動接続します。</small></div>
 <div class="card"><h2>現在の状態</h2><dl>
 <dt>アバター表示</dt><dd id="agentStatus">—</dd><dt>VRChatマイク</dt><dd id="mic">—</dd>
-<dt>ループ監視</dt><dd id="loop">—</dd><dt>CABLE-A / B</dt><dd id="levels">—</dd></dl>
+<dt>ループ監視</dt><dd id="loop">—</dd><dt>CABLE-A / B</dt><dd id="levels">—</dd>
+<dt>自動モーション</dt><dd id="motion">—</dd><dt>発話レベル</dt><dd id="motionLevel">—</dd></dl>
 <div id="message"></div></div>
 <div class="card"><h2>緊急ミュート</h2><div class="grid">
 <button class="danger" onclick="post('/api/mic/mute')">ミュート</button>
@@ -52,6 +55,10 @@ small{color:#aac0cf}dl{display:grid;grid-template-columns:150px 1fr;gap:6px;marg
 <button class="ok" onclick="setLoopGuard(true)">監視を有効化</button>
 <button class="danger" onclick="setLoopGuard(false)">監視を無効化</button></div>
 <small>設定はサブPCへ保存され、次回起動時にも引き継がれます。無効中も手動ミュートは使えます。</small></div>
+<div class="card"><h2>アバター自動モーション</h2><div class="grid">
+<button class="ok" onclick="setMotion(true)">モーションを有効化</button>
+<button class="danger" onclick="setMotion(false)">モーションを停止</button></div>
+<small>待機中は自然な微動、ChatGPT Voiceの発話中は音量に合わせた身振りへ切り替わります。</small></div>
 <div class="card"><h2>アバター状態表示</h2><div class="grid">
 <button onclick="setStatus(0)">0 STOPPED</button><button class="ok" onclick="setStatus(1)">1 ONLINE</button>
 <button class="danger" onclick="setStatus(2)">2 ERROR</button><button class="warn" onclick="setStatus(3)">3 MAINTENANCE</button>
@@ -64,11 +71,13 @@ function forgetToken(){localStorage.removeItem('voiceAgentToken');sessionStorage
 async function request(path,opts={}){opts.headers={...(opts.headers||{}),Authorization:'Bearer '+token(),'Content-Type':'application/json'};
  const response=await fetch(path,opts); const data=await response.json(); if(!response.ok)throw new Error(data.error||response.statusText); return data}
 async function post(path,body={}){try{const d=await request(path,{method:'POST',body:JSON.stringify(body)}); message(d.message||'OK');refresh()}catch(e){message(e.message,true)}}
-function setStatus(value){post('/api/status',{value})} function setLoopGuard(enabled){post('/api/loop/enabled',{enabled})} function message(value,error=false){const e=document.getElementById('message');e.textContent=value;e.style.color=error?'#ff9cab':'#9dd9ff'}
+function setStatus(value){post('/api/status',{value})} function setLoopGuard(enabled){post('/api/loop/enabled',{enabled})} function setMotion(enabled){post('/api/motion/enabled',{enabled})} function message(value,error=false){const e=document.getElementById('message');e.textContent=value;e.style.color=error?'#ff9cab':'#9dd9ff'}
 async function refresh(){if(!token())return;try{const d=await request('/api/status');document.getElementById('agentStatus').textContent=d.status+' '+names[d.status];
  const m=d.muted===null?'未確認':(d.muted?'MUTED':'OPEN');document.getElementById('mic').textContent=m;
  document.getElementById('loop').textContent=d.loop.enabled===false?'無効':(d.loop.triggered?`LOOP DETECTED (${d.loop.score}, ${d.loop.delay_ms}ms)`:(d.loop.running?'監視中':'停止中'));
- document.getElementById('levels').textContent=`${d.loop.cable_a_rms} / ${d.loop.cable_b_rms}`;if(d.last_error)message(d.last_error,true)}catch(e){message(e.message,true)}}
+ document.getElementById('levels').textContent=`${d.loop.cable_a_rms} / ${d.loop.cable_b_rms}`;
+ document.getElementById('motion').textContent=d.motion.enabled?`${d.motion.activity_name} / ON`:'OFF';
+ document.getElementById('motionLevel').textContent=`RMS ${d.motion.input_rms} / ENERGY ${d.motion.energy}`;if(d.last_error)message(d.last_error,true)}catch(e){message(e.message,true)}}
 document.getElementById('token').value=token();if(token()){refresh();timer=setInterval(refresh,1500)}
 </script></body></html>"""
 
@@ -90,17 +99,26 @@ class VoiceControlService:
     def __init__(self, config: ChatGPTVoiceConfig) -> None:
         self.config = config
         self.osc = VRChatOscController(config.osc)
-        self.loop_guard = LoopGuardService(config, self._on_loop, self._on_loop_error)
+        self.motion = MotionService(config.motion, self.osc)
+        self.loop_guard = LoopGuardService(
+            config,
+            self._on_loop,
+            self._on_loop_error,
+            on_cable_b_level=self.motion.on_audio_level,
+            on_cable_b_level_error=self._on_motion_error,
+        )
         self._lock = threading.RLock()
         self.last_error = ""
 
     def start(self) -> None:
         self.osc.start()
         self.osc.send_status(AgentStatus.STOPPED)
+        self.motion.start()
         self.loop_guard.start()
 
     def stop(self) -> None:
         self.loop_guard.stop()
+        self.motion.stop()
         try:
             self.osc.send_status(AgentStatus.STOPPED)
         finally:
@@ -127,12 +145,22 @@ class VoiceControlService:
             with self._lock:
                 self.last_error = f"{self.last_error}; OSC status failed: {exc}"
 
+    def _on_motion_error(self, detail: str) -> None:
+        with self._lock:
+            self.last_error = f"Avatar motion update failed: {detail}"
+        try:
+            self.osc.send_status(AgentStatus.ERROR)
+        except Exception as exc:  # noqa: BLE001 - keep loop monitoring alive on OSC failure
+            with self._lock:
+                self.last_error = f"{self.last_error}; OSC status failed: {exc}"
+
     def snapshot(self) -> dict[str, object]:
         with self._lock:
             return {
                 "status": int(self.osc.status),
                 "muted": self.osc.mute_state,
                 "loop": self.loop_guard.snapshot(),
+                "motion": self.motion.snapshot(),
                 "last_error": self.last_error,
             }
 
@@ -163,6 +191,10 @@ class VoiceControlService:
         with self._lock:
             if self.last_error.startswith(("Self-loop detected", "Loop guard stopped")):
                 self.last_error = ""
+
+    def set_motion_enabled(self, enabled: bool) -> None:
+        save_motion_enabled(self.config, enabled)
+        self.motion.set_enabled(enabled)
 
 
 def make_handler(
@@ -249,6 +281,16 @@ def make_handler(
                 elif self.path == "/api/loop/reset":
                     service.reset_loop()
                     message = "ループ警報をリセットしました（ミュートは解除していません）"
+                elif self.path == "/api/motion/enabled":
+                    enabled = body["enabled"]
+                    if not isinstance(enabled, bool):
+                        raise TypeError("enabled must be true or false")
+                    service.set_motion_enabled(enabled)
+                    message = (
+                        "自動モーションを有効にしました"
+                        if enabled
+                        else "自動モーションを停止しました"
+                    )
                 elif self.path == "/api/loop/enabled":
                     enabled = body["enabled"]
                     if not isinstance(enabled, bool):

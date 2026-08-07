@@ -8,6 +8,7 @@ from vrchat_ai_tool.voice_config import (
     load_voice_config,
     resolve_config_relative,
     save_loop_guard_enabled,
+    save_motion_enabled,
 )
 
 
@@ -26,6 +27,8 @@ class VoiceConfigTests(unittest.TestCase):
             )
             self.assertEqual(config.loop_guard.reliable_max_delay_ms, 1800)
             self.assertEqual(config.loop_guard.min_match_duration_ms, 1500)
+            self.assertTrue(config.motion.enabled)
+            self.assertEqual(config.osc.motion_activity_parameter, "VoiceAgentActivity")
 
     def test_loop_guard_switch_is_persisted_without_losing_other_settings(self) -> None:
         with tempfile.TemporaryDirectory() as directory:
@@ -53,6 +56,19 @@ class VoiceConfigTests(unittest.TestCase):
             path.write_text("[osc]\nwrong = 1\n", encoding="utf-8")
             with self.assertRaisesRegex(ValueError, "wrong"):
                 load_voice_config(path)
+
+    def test_motion_switch_is_persisted_in_its_own_section(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            path = Path(directory) / "voice.toml"
+            path.write_text("[osc]\ntarget_host = \"127.0.0.1\"\n", encoding="utf-8")
+            config = load_voice_config(path)
+
+            save_motion_enabled(config, False)
+
+            saved = path.read_text(encoding="utf-8")
+            self.assertIn("[motion]", saved)
+            self.assertIn("enabled = false", saved)
+            self.assertFalse(load_voice_config(path).motion.enabled)
 
 
 if __name__ == "__main__":

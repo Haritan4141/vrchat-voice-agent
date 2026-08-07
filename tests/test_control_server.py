@@ -25,12 +25,19 @@ class FakeService:
     def __init__(self) -> None:
         self.muted = False
         self.loop_enabled = True
+        self.motion_enabled = True
 
     def snapshot(self) -> dict[str, object]:
         return {
             "status": 0,
             "muted": self.muted,
             "loop": {"enabled": self.loop_enabled, "running": self.loop_enabled, "triggered": False},
+            "motion": {
+                "enabled": self.motion_enabled,
+                "activity_name": "IDLE",
+                "input_rms": 0.0,
+                "energy": 0.0,
+            },
             "last_error": "",
         }
 
@@ -49,6 +56,9 @@ class FakeService:
     def set_loop_guard_enabled(self, enabled: bool) -> None:
         self.loop_enabled = enabled
 
+    def set_motion_enabled(self, enabled: bool) -> None:
+        self.motion_enabled = enabled
+
 
 class ControlServerTests(unittest.TestCase):
     def test_control_page_persists_token_in_browser(self) -> None:
@@ -56,6 +66,8 @@ class ControlServerTests(unittest.TestCase):
         self.assertIn("sessionStorage.getItem('voiceAgentToken'", CONTROL_HTML)
         self.assertIn("forgetToken()", CONTROL_HTML)
         self.assertIn("/api/loop/enabled", CONTROL_HTML)
+        self.assertIn("/api/motion/enabled", CONTROL_HTML)
+        self.assertIn("アバター自動モーション", CONTROL_HTML)
         self.assertIn("監視を無効化", CONTROL_HTML)
 
     def test_token_is_generated_once_and_reused(self) -> None:
@@ -107,6 +119,17 @@ class ControlServerTests(unittest.TestCase):
                 payload = json.loads(response.read().decode("utf-8"))
             self.assertTrue(payload["ok"])
             self.assertFalse(service.loop_enabled)
+
+            request = urllib.request.Request(
+                base + "/api/motion/enabled",
+                data=json.dumps({"enabled": False}).encode("utf-8"),
+                method="POST",
+                headers={"Authorization": "Bearer " + "x" * 32, "Content-Type": "application/json"},
+            )
+            with urllib.request.urlopen(request, timeout=2) as response:
+                payload = json.loads(response.read().decode("utf-8"))
+            self.assertTrue(payload["ok"])
+            self.assertFalse(service.motion_enabled)
         finally:
             server.shutdown()
             server.server_close()

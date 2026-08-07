@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from dataclasses import dataclass, fields, is_dataclass
+from dataclasses import dataclass, field, fields, is_dataclass
 from pathlib import Path
 from typing import Any, TypeVar
 
@@ -36,6 +36,10 @@ class VoiceOscConfig:
     listen_host: str = "127.0.0.1"
     output_port: int = 9001
     status_parameter: str = "VoiceAgentStatus"
+    motion_enabled_parameter: str = "VoiceAgentMotionEnabled"
+    motion_activity_parameter: str = "VoiceAgentActivity"
+    motion_energy_parameter: str = "VoiceAgentEnergy"
+    motion_gesture_parameter: str = "VoiceAgentGesture"
     voice_input_mode: str = "toggle"
     mute_confirm_timeout_sec: float = 2.0
     mute_retry_count: int = 2
@@ -66,6 +70,23 @@ class VoiceLoopGuardConfig:
 
 
 @dataclass(slots=True)
+class VoiceMotionConfig:
+    enabled: bool = True
+    speech_on_rms: float = 350.0
+    speech_off_rms: float = 180.0
+    energy_floor_rms: float = 220.0
+    energy_ceiling_rms: float = 4000.0
+    attack_ms: int = 250
+    release_ms: int = 700
+    settling_ms: int = 550
+    energy_smoothing: float = 0.28
+    idle_gesture_min_sec: float = 8.0
+    idle_gesture_max_sec: float = 18.0
+    speaking_gesture_min_sec: float = 2.8
+    speaking_gesture_max_sec: float = 5.8
+
+
+@dataclass(slots=True)
 class VoiceParsecConfig:
     require_admin_mute_disabled: bool = True
     config_paths: str = ""
@@ -80,6 +101,7 @@ class ChatGPTVoiceConfig:
     loop_guard: VoiceLoopGuardConfig
     parsec: VoiceParsecConfig
     source_path: Path
+    motion: VoiceMotionConfig = field(default_factory=VoiceMotionConfig)
 
 
 T = TypeVar("T")
@@ -105,7 +127,15 @@ def load_voice_config(path: Path) -> ChatGPTVoiceConfig:
     with path.open("rb") as file:
         raw = tomllib.load(file)
 
-    valid_sections = {"audio", "processes", "osc", "control", "loop_guard", "parsec"}
+    valid_sections = {
+        "audio",
+        "processes",
+        "osc",
+        "control",
+        "loop_guard",
+        "parsec",
+        "motion",
+    }
     unknown_sections = sorted(set(raw) - valid_sections)
     if unknown_sections:
         raise ValueError(f"Unknown config sections: {', '.join(unknown_sections)}")
@@ -118,6 +148,7 @@ def load_voice_config(path: Path) -> ChatGPTVoiceConfig:
         loop_guard=_dataclass_from_table(VoiceLoopGuardConfig, raw.get("loop_guard", {})),
         parsec=_dataclass_from_table(VoiceParsecConfig, raw.get("parsec", {})),
         source_path=path,
+        motion=_dataclass_from_table(VoiceMotionConfig, raw.get("motion", {})),
     )
 
 
@@ -128,8 +159,13 @@ def resolve_config_relative(config: ChatGPTVoiceConfig, value: str) -> Path:
     return config.source_path.parent / path
 
 
-def save_loop_guard_enabled(config: ChatGPTVoiceConfig, enabled: bool) -> None:
-    """Persist the loop guard switch without rewriting unrelated TOML settings."""
+def _save_boolean_setting(
+    config: ChatGPTVoiceConfig,
+    section: str,
+    key: str,
+    enabled: bool,
+) -> None:
+    """Persist one boolean without rewriting unrelated TOML settings."""
     path = config.source_path
     text = path.read_text(encoding="utf-8")
     newline = "\r\n" if "\r\n" in text else "\n"
@@ -139,7 +175,7 @@ def save_loop_guard_enabled(config: ChatGPTVoiceConfig, enabled: bool) -> None:
 
     for index, line in enumerate(lines):
         stripped = line.strip()
-        if stripped == "[loop_guard]":
+        if stripped == f"[{section}]":
             section_start = index
             continue
         if section_start is not None and stripped.startswith("[") and stripped.endswith("]"):
@@ -150,22 +186,33 @@ def save_loop_guard_enabled(config: ChatGPTVoiceConfig, enabled: bool) -> None:
     if section_start is None:
         if lines and lines[-1].strip():
             lines.append("")
-        lines.extend(("[loop_guard]", f"enabled = {value}"))
+        lines.extend((f"[{section}]", f"{key} = {value}"))
     else:
         for index in range(section_start + 1, section_end):
             candidate = lines[index].lstrip()
-            if candidate.startswith("enabled") and candidate[len("enabled") :].lstrip().startswith("="):
+            if candidate.startswith(key) and candidate[len(key) :].lstrip().startswith("="):
                 indent = lines[index][: len(lines[index]) - len(candidate)]
-                lines[index] = f"{indent}enabled = {value}"
+                lines[index] = f"{indent}{key} = {value}"
                 break
         else:
-            lines.insert(section_start + 1, f"enabled = {value}")
+            lines.insert(section_start + 1, f"{key} = {value}")
 
     updated = newline.join(lines) + newline
     temporary = path.with_name(path.name + ".tmp")
     temporary.write_text(updated, encoding="utf-8", newline="")
     temporary.replace(path)
+
+
+def save_loop_guard_enabled(config: ChatGPTVoiceConfig, enabled: bool) -> None:
+    """Persist the loop guard switch without rewriting unrelated TOML settings."""
+    _save_boolean_setting(config, "loop_guard", "enabled", enabled)
     config.loop_guard.enabled = enabled
+
+
+def save_motion_enabled(config: ChatGPTVoiceConfig, enabled: bool) -> None:
+    """Persist the avatar motion switch without rewriting unrelated TOML settings."""
+    _save_boolean_setting(config, "motion", "enabled", enabled)
+    config.motion.enabled = enabled
 
 
 def split_names(value: str) -> tuple[str, ...]:
