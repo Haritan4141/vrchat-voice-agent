@@ -26,6 +26,7 @@ class FakeService:
         self.muted = False
         self.loop_enabled = True
         self.motion_enabled = True
+        self.diagnostic_calls: list[tuple[str, int | None]] = []
 
     def snapshot(self) -> dict[str, object]:
         return {
@@ -59,6 +60,21 @@ class FakeService:
     def set_motion_enabled(self, enabled: bool) -> None:
         self.motion_enabled = enabled
 
+    def start_motion_diagnostic_test(self) -> None:
+        self.diagnostic_calls.append(("test", None))
+
+    def stop_motion_diagnostic(self) -> None:
+        self.diagnostic_calls.append(("stop", None))
+
+    def set_motion_diagnostic_activity(self, value: int) -> None:
+        self.diagnostic_calls.append(("activity", value))
+
+    def play_motion_diagnostic_gesture(self, value: int) -> None:
+        self.diagnostic_calls.append(("gesture", value))
+
+    def set_motion_diagnostic_expression(self, value: int) -> None:
+        self.diagnostic_calls.append(("expression", value))
+
 
 class ControlServerTests(unittest.TestCase):
     def test_control_page_persists_token_in_browser(self) -> None:
@@ -68,6 +84,10 @@ class ControlServerTests(unittest.TestCase):
         self.assertIn("/api/loop/enabled", CONTROL_HTML)
         self.assertIn("/api/motion/enabled", CONTROL_HTML)
         self.assertIn("/api/motion/test", CONTROL_HTML)
+        self.assertIn("/api/motion/diagnostic/activity", CONTROL_HTML)
+        self.assertIn("/api/motion/diagnostic/gesture", CONTROL_HTML)
+        self.assertIn("/api/motion/diagnostic/expression", CONTROL_HTML)
+        self.assertIn("全動作テスト（約49秒）", CONTROL_HTML)
         self.assertIn("アバター自動モーション", CONTROL_HTML)
         self.assertIn("監視を無効化", CONTROL_HTML)
 
@@ -131,6 +151,17 @@ class ControlServerTests(unittest.TestCase):
                 payload = json.loads(response.read().decode("utf-8"))
             self.assertTrue(payload["ok"])
             self.assertFalse(service.motion_enabled)
+
+            request = urllib.request.Request(
+                base + "/api/motion/diagnostic/gesture",
+                data=json.dumps({"value": 6}).encode("utf-8"),
+                method="POST",
+                headers={"Authorization": "Bearer " + "x" * 32, "Content-Type": "application/json"},
+            )
+            with urllib.request.urlopen(request, timeout=2) as response:
+                payload = json.loads(response.read().decode("utf-8"))
+            self.assertTrue(payload["ok"])
+            self.assertIn(("gesture", 6), service.diagnostic_calls)
         finally:
             server.shutdown()
             server.server_close()

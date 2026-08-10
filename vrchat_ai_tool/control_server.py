@@ -36,6 +36,7 @@ input{box-sizing:border-box;width:100%;background:#07121d;color:#fff}.row{displa
 .row input{flex:1}.pill{display:inline-block;border-radius:999px;padding:4px 10px;background:#20364a}
 #message{min-height:1.4em;color:#9dd9ff}.muted{color:#ffabb6}.online{color:#7ff0b2}
 small{color:#aac0cf}dl{display:grid;grid-template-columns:150px 1fr;gap:6px;margin:8px 0}dd{margin:0}
+h3{font-size:1rem;margin:16px 0 8px}.wide{grid-column:1/-1}
 </style></head><body>
 <h1>VRChat Voice Agent Control</h1>
 <div class="card"><div class="row"><input id="token" type="password" placeholder="control-token.txt のトークン">
@@ -45,7 +46,7 @@ small{color:#aac0cf}dl{display:grid;grid-template-columns:150px 1fr;gap:6px;marg
 <dt>アバター表示</dt><dd id="agentStatus">—</dd><dt>VRChatマイク</dt><dd id="mic">—</dd>
 <dt>ループ監視</dt><dd id="loop">—</dd><dt>CABLE-A / B</dt><dd id="levels">—</dd>
 <dt>自動モーション</dt><dd id="motion">—</dd><dt>発話レベル</dt><dd id="motionLevel">—</dd>
-<dt>発話表情</dt><dd id="motionExpression">—</dd></dl>
+<dt>アクセント</dt><dd id="motionGesture">—</dd><dt>発話表情</dt><dd id="motionExpression">—</dd></dl>
 <div id="message"></div></div>
 <div class="card"><h2>緊急ミュート</h2><div class="grid">
 <button class="danger" onclick="post('/api/mic/mute')">ミュート</button>
@@ -58,9 +59,33 @@ small{color:#aac0cf}dl{display:grid;grid-template-columns:150px 1fr;gap:6px;marg
 <small>設定はサブPCへ保存され、次回起動時にも引き継がれます。無効中も手動ミュートは使えます。</small></div>
 <div class="card"><h2>アバター自動モーション</h2><div class="grid">
 <button class="ok" onclick="setMotion(true)">モーションを有効化</button>
-<button class="danger" onclick="setMotion(false)">モーションを停止</button>
-<button class="warn" onclick="post('/api/motion/test')">約5秒の動作テスト</button></div>
-<small>動作テストはCABLE-Bの音声検出を使わず、発話動作・頷き・7表情を順にOSC送信します。終了後は自動で待機状態へ戻ります。</small></div>
+<button class="danger" onclick="setMotion(false)">モーションを停止</button></div></div>
+<div class="card"><h2>遠隔視点の動作確認</h2>
+<div class="grid"><button class="warn" onclick="post('/api/motion/test')">全動作テスト（約49秒）</button>
+<button class="danger" onclick="post('/api/motion/diagnostic/stop')">診断終了・自動へ戻す</button></div>
+<h3>動作状態</h3><div class="grid">
+<button onclick="diagnosticActivity(0)">待機中</button>
+<button class="ok" onclick="diagnosticActivity(1)">発話中</button>
+<button onclick="diagnosticActivity(2)">収束中</button></div>
+<h3>アクセント動作</h3><div class="grid">
+<button onclick="diagnosticGesture(1)">1 大きく頷く</button>
+<button onclick="diagnosticGesture(2)">2 左手を胸元へ</button>
+<button onclick="diagnosticGesture(3)">3 右手をお腹へ</button>
+<button onclick="diagnosticGesture(4)">4 両手を胸前へ</button>
+<button onclick="diagnosticGesture(5)">5 髪の毛くるくる</button>
+<button onclick="diagnosticGesture(6)">6 口に指</button>
+<button onclick="diagnosticGesture(7)">7 前傾姿勢</button>
+<button onclick="diagnosticGesture(8)">8 かわいい待機2</button>
+<button onclick="diagnosticGesture(9)">9 うたた寝01</button></div>
+<h3>表情</h3><div class="grid">
+<button onclick="diagnosticExpression(0)">0 通常</button>
+<button onclick="diagnosticExpression(1)">1 Open</button>
+<button onclick="diagnosticExpression(2)">2 FingerPoint</button>
+<button onclick="diagnosticExpression(3)">3 Victory</button>
+<button onclick="diagnosticExpression(4)">4 Rock&amp;Roll</button>
+<button onclick="diagnosticExpression(5)">5 Gun</button>
+<button onclick="diagnosticExpression(6)">6 ThumbsUp</button></div>
+<small>診断中はCABLE-Bによる自動判定を一時停止します。全動作テストは9アクセントを5秒ずつ再生し、その間に全7表情も切り替えます。個別の表情と状態は診断終了まで保持され、表情を選ぶと発話中へ切り替わります。</small></div>
 <div class="card"><h2>アバター状態表示</h2><div class="grid">
 <button onclick="setStatus(0)">0 STOPPED</button><button class="ok" onclick="setStatus(1)">1 ONLINE</button>
 <button class="danger" onclick="setStatus(2)">2 ERROR</button><button class="warn" onclick="setStatus(3)">3 MAINTENANCE</button>
@@ -68,19 +93,23 @@ small{color:#aac0cf}dl{display:grid;grid-template-columns:150px 1fr;gap:6px;marg
 <script>
 const names=['STOPPED','ONLINE','ERROR','MAINTENANCE'];
 const faceNames=['通常','Open','FingerPoint','Victory','Rock&Roll','Gun','ThumbsUp']; let timer=null;
+const gestureNames=['なし','大きく頷く','左手を胸元へ','右手をお腹へ','両手を胸前へ','髪の毛くるくる','口に指','前傾姿勢','かわいい待機2','うたた寝01'];
 function token(){let value=localStorage.getItem('voiceAgentToken')||'';if(!value){value=sessionStorage.getItem('voiceAgentToken')||'';if(value)localStorage.setItem('voiceAgentToken',value)}return value}
 function saveToken(){const value=document.getElementById('token').value.trim();if(!value){message('トークンを入力してください',true);return}localStorage.setItem('voiceAgentToken',value);sessionStorage.removeItem('voiceAgentToken');refresh();if(!timer)timer=setInterval(refresh,1500)}
 function forgetToken(){localStorage.removeItem('voiceAgentToken');sessionStorage.removeItem('voiceAgentToken');document.getElementById('token').value='';if(timer){clearInterval(timer);timer=null}message('保存したトークンを削除しました')}
 async function request(path,opts={}){opts.headers={...(opts.headers||{}),Authorization:'Bearer '+token(),'Content-Type':'application/json'};
  const response=await fetch(path,opts); const data=await response.json(); if(!response.ok)throw new Error(data.error||response.statusText); return data}
 async function post(path,body={}){try{const d=await request(path,{method:'POST',body:JSON.stringify(body)}); message(d.message||'OK');refresh()}catch(e){message(e.message,true)}}
-function setStatus(value){post('/api/status',{value})} function setLoopGuard(enabled){post('/api/loop/enabled',{enabled})} function setMotion(enabled){post('/api/motion/enabled',{enabled})} function message(value,error=false){const e=document.getElementById('message');e.textContent=value;e.style.color=error?'#ff9cab':'#9dd9ff'}
+function setStatus(value){post('/api/status',{value})} function setLoopGuard(enabled){post('/api/loop/enabled',{enabled})} function setMotion(enabled){post('/api/motion/enabled',{enabled})}
+function diagnosticActivity(value){post('/api/motion/diagnostic/activity',{value})} function diagnosticGesture(value){post('/api/motion/diagnostic/gesture',{value})} function diagnosticExpression(value){post('/api/motion/diagnostic/expression',{value})}
+function message(value,error=false){const e=document.getElementById('message');e.textContent=value;e.style.color=error?'#ff9cab':'#9dd9ff'}
 async function refresh(){if(!token())return;try{const d=await request('/api/status');document.getElementById('agentStatus').textContent=d.status+' '+names[d.status];
  const m=d.muted===null?'未確認':(d.muted?'MUTED':'OPEN');document.getElementById('mic').textContent=m;
  document.getElementById('loop').textContent=d.loop.enabled===false?'無効':(d.loop.triggered?`LOOP DETECTED (${d.loop.score}, ${d.loop.delay_ms}ms)`:(d.loop.running?'監視中':'停止中'));
  document.getElementById('levels').textContent=`${d.loop.cable_a_rms} / ${d.loop.cable_b_rms}`;
- document.getElementById('motion').textContent=d.motion.enabled?`${d.motion.activity_name}${d.motion.diagnostic_running?' / TEST':''} / ON`:'OFF';
+ document.getElementById('motion').textContent=d.motion.enabled?`${d.motion.activity_name}${d.motion.diagnostic_running?` / TEST: ${d.motion.diagnostic_label||'手動確認'}`:''} / ON`:'OFF';
  document.getElementById('motionLevel').textContent=`RMS ${d.motion.input_rms} / ENERGY ${d.motion.energy}`;
+ document.getElementById('motionGesture').textContent=`${d.motion.last_gesture} ${gestureNames[d.motion.last_gesture]||'—'}`;
  document.getElementById('motionExpression').textContent=`${d.motion.last_expression} ${faceNames[d.motion.last_expression]||'—'}`;if(d.last_error)message(d.last_error,true)}catch(e){message(e.message,true)}}
 document.getElementById('token').value=token();if(token()){refresh();timer=setInterval(refresh,1500)}
 </script></body></html>"""
@@ -200,6 +229,21 @@ class VoiceControlService:
         save_motion_enabled(self.config, enabled)
         self.motion.set_enabled(enabled)
 
+    def start_motion_diagnostic_test(self) -> None:
+        self.motion.start_diagnostic_test()
+
+    def stop_motion_diagnostic(self) -> None:
+        self.motion.stop_diagnostic_test()
+
+    def set_motion_diagnostic_activity(self, value: int) -> None:
+        self.motion.set_diagnostic_activity(value)
+
+    def play_motion_diagnostic_gesture(self, value: int) -> None:
+        self.motion.play_diagnostic_gesture(value)
+
+    def set_motion_diagnostic_expression(self, value: int) -> None:
+        self.motion.set_diagnostic_expression(value)
+
 
 def make_handler(
     service: VoiceControlService,
@@ -296,8 +340,20 @@ def make_handler(
                         else "自動モーションを停止しました"
                     )
                 elif self.path == "/api/motion/test":
-                    service.motion.start_diagnostic_test()
-                    message = "発話動作・表情のOSCテストを開始しました"
+                    service.start_motion_diagnostic_test()
+                    message = "全アクセント・全表情の遠隔表示テストを開始しました"
+                elif self.path == "/api/motion/diagnostic/stop":
+                    service.stop_motion_diagnostic()
+                    message = "動作診断を終了し、自動モーションへ戻しました"
+                elif self.path == "/api/motion/diagnostic/activity":
+                    service.set_motion_diagnostic_activity(int(body["value"]))
+                    message = "診断用の動作状態を変更しました"
+                elif self.path == "/api/motion/diagnostic/gesture":
+                    service.play_motion_diagnostic_gesture(int(body["value"]))
+                    message = "診断用アクセントを再生しました"
+                elif self.path == "/api/motion/diagnostic/expression":
+                    service.set_motion_diagnostic_expression(int(body["value"]))
+                    message = "診断用の表情を変更しました"
                 elif self.path == "/api/loop/enabled":
                     enabled = body["enabled"]
                     if not isinstance(enabled, bool):

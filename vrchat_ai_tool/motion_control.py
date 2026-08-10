@@ -23,6 +23,9 @@ class MotionActivity(IntEnum):
 IDLE_GESTURE_CHOICES = (1, 1, 1, 5, 8, 8, 8, 9)
 SPEAKING_GESTURE_CHOICES = (1, 1, 1, 2, 2, 3, 3, 4, 4, 5, 6, 6, 7, 7)
 SPEAKING_EXPRESSION_CHOICES = (0, 1, 2, 3, 4, 5, 6)
+DIAGNOSTIC_GESTURES = tuple(range(1, 10))
+DIAGNOSTIC_EXPRESSIONS = tuple(range(0, 7))
+DIAGNOSTIC_STEP_SEC = 5.0
 
 
 class MotionOsc(Protocol):
@@ -57,6 +60,7 @@ class MotionSnapshot:
     last_gesture: int = 0
     last_expression: int = 0
     diagnostic_running: bool = False
+    diagnostic_label: str = ""
 
     def to_dict(self) -> dict[str, object]:
         return asdict(self)
@@ -89,10 +93,13 @@ class MotionService:
         self._settling_until = 0.0
         self._next_gesture_at = 0.0
         self._last_gesture = 0
+        self._gesture_reset_at = 0.0
         self._next_expression_at = 0.0
         self._last_expression = 0
         self._diagnostic_running = False
+        self._diagnostic_label = ""
         self._diagnostic_generation = 0
+        self._diagnostic_gesture_generation = 0
 
     @property
     def enabled(self) -> bool:
@@ -109,11 +116,14 @@ class MotionService:
             self._below_since = None
             self._settling_until = 0.0
             self._last_gesture = 0
+            self._gesture_reset_at = 0.0
             self._next_gesture_at = now + self._gesture_interval(MotionActivity.IDLE)
             self._last_expression = 0
             self._next_expression_at = 0.0
             self._diagnostic_running = False
+            self._diagnostic_label = ""
             self._diagnostic_generation += 1
+            self._diagnostic_gesture_generation += 1
         self.osc.send_motion_enabled(self.config.enabled)
         self.osc.send_motion_activity(int(MotionActivity.IDLE))
         self.osc.send_motion_energy(0.0)
@@ -126,10 +136,13 @@ class MotionService:
             self._running = False
             self._activity = MotionActivity.IDLE
             self._energy = 0.0
+            self._gesture_reset_at = 0.0
             self._last_expression = 0
             self._next_expression_at = 0.0
             self._diagnostic_running = False
+            self._diagnostic_label = ""
             self._diagnostic_generation += 1
+            self._diagnostic_gesture_generation += 1
         if was_running:
             self.osc.send_motion_activity(int(MotionActivity.IDLE))
             self.osc.send_motion_energy(0.0)
@@ -147,11 +160,14 @@ class MotionService:
             self._energy = 0.0
             self._last_sent_energy = -1.0
             self._last_gesture = 0
+            self._gesture_reset_at = 0.0
             self._next_gesture_at = now + self._gesture_interval(MotionActivity.IDLE)
             self._last_expression = 0
             self._next_expression_at = 0.0
             self._diagnostic_running = False
+            self._diagnostic_label = ""
             self._diagnostic_generation += 1
+            self._diagnostic_gesture_generation += 1
         self.osc.send_motion_enabled(enabled)
         self.osc.send_motion_activity(int(MotionActivity.IDLE))
         self.osc.send_motion_energy(0.0)
@@ -170,33 +186,34 @@ class MotionService:
                 last_gesture=self._last_gesture,
                 last_expression=self._last_expression,
                 diagnostic_running=self._diagnostic_running,
+                diagnostic_label=self._diagnostic_label,
             )
         return value.to_dict()
 
     def start_diagnostic_test(self) -> None:
-        """Send an isolated speaking/expression sequence to VRChat.
+        """Run every synced accent and expression at a remotely visible pace.
 
         Audio-driven updates are temporarily held so this test can distinguish an
-        OSC/Animator problem from a CABLE-B level-detection problem. The sequence
-        always restores the neutral parameters, even if the control page closes.
+        OSC/Animator/sync problem from a CABLE-B level-detection problem. Each
+        accent step lasts five seconds so another VRChat client can observe it.
         """
         with self._lock:
-            if not self._running:
-                raise RuntimeError("Avatar motion service is not running")
-            if not self.osc.motion_enabled:
-                raise RuntimeError("Enable avatar motion before running the test")
+            self._require_diagnostic_available()
             self._diagnostic_generation += 1
             generation = self._diagnostic_generation
+            self._diagnostic_gesture_generation += 1
             self._diagnostic_running = True
+            self._diagnostic_label = "全動作テスト: 準備中"
             self._activity = MotionActivity.SPEAKING
             self._energy = 0.72
-            self._last_gesture = 1
-            self._last_expression = 1
+            self._last_gesture = 0
+            self._gesture_reset_at = 0.0
+            self._last_expression = 0
 
         self.osc.send_motion_activity(int(MotionActivity.SPEAKING))
         self.osc.send_motion_energy(0.72)
-        self.osc.send_motion_gesture(1)
-        self.osc.send_motion_expression(1)
+        self.osc.send_motion_gesture(0)
+        self.osc.send_motion_expression(0)
 
         thread = threading.Thread(
             target=self._run_diagnostic_test,
@@ -212,9 +229,12 @@ class MotionService:
             self._diagnostic_generation += 1
             was_running = self._diagnostic_running
             self._diagnostic_running = False
+            self._diagnostic_label = ""
+            self._diagnostic_gesture_generation += 1
             self._activity = MotionActivity.IDLE
             self._energy = 0.0
             self._last_gesture = 0
+            self._gesture_reset_at = 0.0
             self._last_expression = 0
             self._above_since = None
             self._below_since = None
@@ -227,19 +247,170 @@ class MotionService:
             self.osc.send_motion_gesture(0)
             self.osc.send_motion_expression(0)
 
+    def set_diagnostic_activity(self, activity: int) -> None:
+        try:
+            selected = MotionActivity(int(activity))
+        except ValueError as exc:
+            raise ValueError("activity must be 0 (idle), 1 (speaking), or 2 (settling)") from exc
+
+        with self._lock:
+            started = self._begin_manual_diagnostic()
+            self._activity = selected
+            self._energy = 0.72 if selected == MotionActivity.SPEAKING else 0.0
+            self._diagnostic_label = f"状態確認: {selected.name}"
+            energy = self._energy
+        self.osc.send_motion_activity(int(selected))
+        self.osc.send_motion_energy(energy)
+        if started:
+            self.osc.send_motion_gesture(0)
+
+    def play_diagnostic_gesture(self, gesture: int) -> None:
+        gesture = int(gesture)
+        if gesture not in DIAGNOSTIC_GESTURES:
+            raise ValueError("gesture must be between 1 and 9")
+
+        with self._lock:
+            started = self._begin_manual_diagnostic()
+            if started:
+                self._activity = MotionActivity.SPEAKING
+                self._energy = 0.72
+            self._last_gesture = gesture
+            self._diagnostic_label = f"アクセント確認: {gesture}/9"
+            activity = self._activity
+            energy = self._energy
+        if started:
+            self.osc.send_motion_activity(int(activity))
+            self.osc.send_motion_energy(energy)
+        self._send_diagnostic_gesture(gesture)
+
+    def set_diagnostic_expression(self, expression: int) -> None:
+        expression = int(expression)
+        if expression not in DIAGNOSTIC_EXPRESSIONS:
+            raise ValueError("expression must be between 0 and 6")
+
+        with self._lock:
+            started = self._begin_manual_diagnostic()
+            # Speaking expressions are intentionally gated by Activity=1 in FX.
+            # Selecting a face from the GUI must therefore enter speaking mode
+            # even when the previous manual check was idle or settling.
+            self._activity = MotionActivity.SPEAKING
+            self._energy = 0.72
+            self._last_expression = expression
+            self._diagnostic_label = f"表情確認: {expression}/6"
+            activity = self._activity
+            energy = self._energy
+        self.osc.send_motion_activity(int(activity))
+        self.osc.send_motion_energy(energy)
+        if started:
+            self.osc.send_motion_gesture(0)
+        self.osc.send_motion_expression(expression)
+
+    def _begin_manual_diagnostic(self) -> bool:
+        self._require_diagnostic_available()
+        started = not self._diagnostic_running
+        self._diagnostic_generation += 1
+        self._diagnostic_running = True
+        if started:
+            self._diagnostic_gesture_generation += 1
+            self._gesture_reset_at = 0.0
+            self._last_gesture = 0
+        return started
+
+    def _require_diagnostic_available(self) -> None:
+        if not self._running:
+            raise RuntimeError("Avatar motion service is not running")
+        if not self.osc.motion_enabled:
+            raise RuntimeError("Enable avatar motion before running the test")
+
+    def _send_diagnostic_gesture(
+        self,
+        gesture: int,
+        *,
+        diagnostic_generation: int | None = None,
+    ) -> bool:
+        hold_sec = self._gesture_sync_hold_sec()
+        with self._lock:
+            if (
+                not self._diagnostic_running
+                or (
+                    diagnostic_generation is not None
+                    and diagnostic_generation != self._diagnostic_generation
+                )
+            ):
+                return False
+            self._diagnostic_gesture_generation += 1
+            gesture_generation = self._diagnostic_gesture_generation
+            self._gesture_reset_at = self._clock() + hold_sec
+        self.osc.send_motion_gesture(gesture)
+        threading.Thread(
+            target=self._reset_diagnostic_gesture_after,
+            args=(gesture_generation, hold_sec),
+            name="voice-agent-gesture-reset",
+            daemon=True,
+        ).start()
+        return True
+
+    def _reset_diagnostic_gesture_after(self, generation: int, hold_sec: float) -> None:
+        time.sleep(hold_sec)
+        with self._lock:
+            should_reset = (
+                self._diagnostic_running
+                and generation == self._diagnostic_gesture_generation
+            )
+            if should_reset:
+                self._gesture_reset_at = 0.0
+        if should_reset:
+            self.osc.send_motion_gesture(0)
+
     def _run_diagnostic_test(self, generation: int) -> None:
         try:
-            # Keep each face visible long enough to confirm repeated transitions.
-            for expression in (2, 3, 4, 5, 6, 0):
-                time.sleep(0.8)
+            for index, gesture in enumerate(DIAGNOSTIC_GESTURES, start=1):
+                expression = DIAGNOSTIC_EXPRESSIONS[(index - 1) % len(DIAGNOSTIC_EXPRESSIONS)]
                 with self._lock:
                     if (
                         not self._diagnostic_running
                         or generation != self._diagnostic_generation
                     ):
                         return
+                    self._last_gesture = gesture
                     self._last_expression = expression
+                    self._diagnostic_label = (
+                        f"全動作テスト: {index}/9 "
+                        f"(アクセント{gesture}・表情{expression})"
+                    )
                 self.osc.send_motion_expression(expression)
+                if not self._send_diagnostic_gesture(
+                    gesture,
+                    diagnostic_generation=generation,
+                ):
+                    return
+                time.sleep(DIAGNOSTIC_STEP_SEC)
+
+            with self._lock:
+                if (
+                    not self._diagnostic_running
+                    or generation != self._diagnostic_generation
+                ):
+                    return
+                self._activity = MotionActivity.SETTLING
+                self._energy = 0.0
+                self._last_expression = 0
+                self._diagnostic_label = "全動作テスト: 収束確認"
+            self.osc.send_motion_activity(int(MotionActivity.SETTLING))
+            self.osc.send_motion_energy(0.0)
+            self.osc.send_motion_expression(0)
+            time.sleep(2.0)
+
+            with self._lock:
+                if (
+                    not self._diagnostic_running
+                    or generation != self._diagnostic_generation
+                ):
+                    return
+                self._activity = MotionActivity.IDLE
+                self._diagnostic_label = "全動作テスト: 待機確認"
+            self.osc.send_motion_activity(int(MotionActivity.IDLE))
+            time.sleep(2.0)
         finally:
             with self._lock:
                 should_stop = (
@@ -258,6 +429,12 @@ class MotionService:
             self._input_rms = max(0.0, float(rms))
             if self._diagnostic_running:
                 return
+
+            gesture_reset_sent = False
+            if self._gesture_reset_at > 0.0 and now >= self._gesture_reset_at:
+                self._gesture_reset_at = 0.0
+                gesture_reset_sent = True
+                sends.append(("gesture", 0))
             blocked = self.osc.mute_state is True or self.osc.status == AgentStatus.ERROR
             motion_enabled = self.osc.motion_enabled
             effective_rms = 0.0 if blocked or not motion_enabled else self._input_rms
@@ -301,11 +478,14 @@ class MotionService:
             if (
                 motion_enabled
                 and not blocked
+                and not gesture_reset_sent
+                and self._gesture_reset_at <= 0.0
                 and now >= self._next_gesture_at
                 and self._activity != MotionActivity.SETTLING
             ):
                 gesture = self._choose_gesture(self._activity)
                 self._last_gesture = gesture
+                self._gesture_reset_at = now + self._gesture_sync_hold_sec()
                 self._next_gesture_at = now + self._gesture_interval(self._activity)
                 sends.append(("gesture", gesture))
 
@@ -376,6 +556,12 @@ class MotionService:
             high = self.config.idle_gesture_max_sec
         low, high = sorted((max(0.1, low), max(0.1, high)))
         return self._rng.uniform(low, high)
+
+    def _gesture_sync_hold_sec(self) -> float:
+        # Custom synced parameters use VRChat's Playable sync, which can take up
+        # to about one second. Keep the non-zero accent value alive long enough
+        # for remote clients to observe it before returning to neutral.
+        return max(0.1, float(self.config.gesture_sync_hold_sec))
 
     def _choose_gesture(self, activity: MotionActivity) -> int:
         choices = (

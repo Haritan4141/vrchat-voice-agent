@@ -85,6 +85,7 @@ class VoiceMotionConfig:
     idle_gesture_max_sec: float = 18.0
     speaking_gesture_min_sec: float = 2.8
     speaking_gesture_max_sec: float = 5.8
+    gesture_sync_hold_sec: float = 1.5
     speaking_expression_min_sec: float = 2.0
     speaking_expression_max_sec: float = 4.0
 

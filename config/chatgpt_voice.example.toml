@@ -70,6 +70,8 @@ idle_gesture_min_sec = 8.0
 idle_gesture_max_sec = 18.0
 speaking_gesture_min_sec = 2.8
 speaking_gesture_max_sec = 5.8
+# Hold an accent value long enough for VRChat Playable parameter sync.
+gesture_sync_hold_sec = 1.5
 # 発話中の顔表情を、直前と重ならないよう2〜4秒ごとに切り替えます。
 speaking_expression_min_sec = 2.0
 speaking_expression_max_sec = 4.0
