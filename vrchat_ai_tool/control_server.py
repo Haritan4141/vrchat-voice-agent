@@ -92,6 +92,7 @@ h3{font-size:1rem;margin:16px 0 8px}.wide{grid-column:1/-1}
 </div></div>
 <script>
 const names=['STOPPED','ONLINE','ERROR','MAINTENANCE'];
+const activityNames=['待機中','発話中','収束中'];
 const faceNames=['通常','Open','FingerPoint','Victory','Rock&Roll','Gun','ThumbsUp']; let timer=null;
 const gestureNames=['なし','大きく頷く','左手を胸元へ','右手をお腹へ','両手を胸前へ','髪の毛くるくる','口に指','前傾姿勢','かわいい待機2','うたた寝01'];
 function token(){let value=localStorage.getItem('voiceAgentToken')||'';if(!value){value=sessionStorage.getItem('voiceAgentToken')||'';if(value)localStorage.setItem('voiceAgentToken',value)}return value}
@@ -103,14 +104,15 @@ async function post(path,body={}){try{const d=await request(path,{method:'POST',
 function setStatus(value){post('/api/status',{value})} function setLoopGuard(enabled){post('/api/loop/enabled',{enabled})} function setMotion(enabled){post('/api/motion/enabled',{enabled})}
 function diagnosticActivity(value){post('/api/motion/diagnostic/activity',{value})} function diagnosticGesture(value){post('/api/motion/diagnostic/gesture',{value})} function diagnosticExpression(value){post('/api/motion/diagnostic/expression',{value})}
 function message(value,error=false){const e=document.getElementById('message');e.textContent=value;e.style.color=error?'#ff9cab':'#9dd9ff'}
-async function refresh(){if(!token())return;try{const d=await request('/api/status');document.getElementById('agentStatus').textContent=d.status+' '+names[d.status];
+function confirmedValue(actual,target,labeler){if(actual===null||actual===undefined)return `未確認（送信目標: ${labeler(target)}）`;if(actual!==target)return `${labeler(actual)} / 未反映→ ${labeler(target)}`;return `${labeler(actual)} ✓`}
+async function refresh(){if(!token())return;try{const d=await request('/api/status');const a=d.avatar||{};document.getElementById('agentStatus').textContent=confirmedValue(a.status,a.status_target,v=>`${v} ${names[v]||'—'}`);
  const m=d.muted===null?'未確認':(d.muted?'MUTED':'OPEN');document.getElementById('mic').textContent=m;
  document.getElementById('loop').textContent=d.loop.enabled===false?'無効':(d.loop.triggered?`LOOP DETECTED (${d.loop.score}, ${d.loop.delay_ms}ms)`:(d.loop.running?'監視中':'停止中'));
  document.getElementById('levels').textContent=`${d.loop.cable_a_rms} / ${d.loop.cable_b_rms}`;
- document.getElementById('motion').textContent=d.motion.enabled?`${d.motion.activity_name}${d.motion.diagnostic_running?` / TEST: ${d.motion.diagnostic_label||'手動確認'}`:''} / ON`:'OFF';
- document.getElementById('motionLevel').textContent=`RMS ${d.motion.input_rms} / ENERGY ${d.motion.energy}`;
- document.getElementById('motionGesture').textContent=`${d.motion.last_gesture} ${gestureNames[d.motion.last_gesture]||'—'}`;
- document.getElementById('motionExpression').textContent=`${d.motion.last_expression} ${faceNames[d.motion.last_expression]||'—'}`;if(d.last_error)message(d.last_error,true)}catch(e){message(e.message,true)}}
+ const enabled=confirmedValue(a.motion_enabled,a.motion_enabled_target,v=>v?'ON':'OFF');const activity=confirmedValue(a.activity,a.activity_target,v=>activityNames[v]||String(v));document.getElementById('motion').textContent=`${activity}${d.motion.diagnostic_running?` / TEST: ${d.motion.diagnostic_label||'手動確認'}`:''} / ${enabled}`;
+ const actualEnergy=a.energy===null||a.energy===undefined?'未確認':Number(a.energy).toFixed(2);document.getElementById('motionLevel').textContent=`RMS ${d.motion.input_rms} / ENERGY ${d.motion.energy}（VRChat ${actualEnergy}）`;
+ document.getElementById('motionGesture').textContent=confirmedValue(a.gesture,a.gesture_target,v=>`${v} ${gestureNames[v]||'—'}`);
+ document.getElementById('motionExpression').textContent=confirmedValue(a.expression,a.expression_target,v=>`${v} ${faceNames[v]||'—'}`);if(d.last_error)message(d.last_error,true)}catch(e){message(e.message,true)}}
 document.getElementById('token').value=token();if(token()){refresh();timer=setInterval(refresh,1500)}
 </script></body></html>"""
 
@@ -191,6 +193,7 @@ class VoiceControlService:
         with self._lock:
             return {
                 "status": int(self.osc.status),
+                "avatar": self.osc.feedback_snapshot(),
                 "muted": self.osc.mute_state,
                 "loop": self.loop_guard.snapshot(),
                 "motion": self.motion.snapshot(),
@@ -208,7 +211,7 @@ class VoiceControlService:
     def set_status(self, value: int) -> None:
         if value == int(AgentStatus.ONLINE) and self.loop_guard.detector.last.triggered:
             raise RuntimeError("ループ警報中はONLINEへ戻せません。先に原因を確認して警報をリセットしてください。")
-        self.osc.send_status(AgentStatus(value))
+        self.osc.set_status_confirmed(AgentStatus(value))
         with self._lock:
             if value != int(AgentStatus.ERROR):
                 self.last_error = ""

@@ -39,11 +39,19 @@ class VRChatOscController:
         self._mute_state: bool | None = None
         self._mute_version = 0
         self._status = AgentStatus.STOPPED
+        self._observed_status: AgentStatus | None = None
+        self._status_version = 0
         self._motion_enabled = True
+        self._observed_motion_enabled: bool | None = None
         self._motion_activity = 0
+        self._observed_motion_activity: int | None = None
         self._motion_energy = 0.0
+        self._observed_motion_energy: float | None = None
         self._motion_gesture = 0
+        self._observed_motion_gesture: int | None = None
         self._motion_expression = 0
+        self._observed_motion_expression: int | None = None
+        self._avatar_replay_generation = 0
 
     @property
     def mute_state(self) -> bool | None:
@@ -66,8 +74,28 @@ class VRChatOscController:
         dispatcher = Dispatcher()
         dispatcher.map("/avatar/parameters/MuteSelf", self._on_mute_self)
         dispatcher.map(
+            f"/avatar/parameters/{self.config.status_parameter}",
+            self._on_status,
+        )
+        dispatcher.map(
             f"/avatar/parameters/{self.config.motion_enabled_parameter}",
             self._on_motion_enabled,
+        )
+        dispatcher.map(
+            f"/avatar/parameters/{self.config.motion_activity_parameter}",
+            self._on_motion_activity,
+        )
+        dispatcher.map(
+            f"/avatar/parameters/{self.config.motion_energy_parameter}",
+            self._on_motion_energy,
+        )
+        dispatcher.map(
+            f"/avatar/parameters/{self.config.motion_gesture_parameter}",
+            self._on_motion_gesture,
+        )
+        dispatcher.map(
+            f"/avatar/parameters/{self.config.motion_expression_parameter}",
+            self._on_motion_expression,
         )
         dispatcher.map("/avatar/change", self._on_avatar_change)
         self._server = self._server_factory(
@@ -99,6 +127,30 @@ class VRChatOscController:
             self._condition.notify_all()
 
     def _on_avatar_change(self, _address: str, *_values: object) -> None:
+        # VRChat reports the avatar change before the new playable is always ready
+        # to consume custom parameters. Delay and replay the complete state instead
+        # of relying on a single immediate UDP packet.
+        with self._condition:
+            self._observed_status = None
+            self._observed_motion_enabled = None
+            self._observed_motion_activity = None
+            self._observed_motion_energy = None
+            self._observed_motion_gesture = None
+            self._observed_motion_expression = None
+            self._avatar_replay_generation += 1
+            generation = self._avatar_replay_generation
+        threading.Thread(
+            target=self._replay_after_avatar_change,
+            args=(generation,),
+            name="vrchat-osc-avatar-replay",
+            daemon=True,
+        ).start()
+
+    def _replay_after_avatar_change(self, generation: int) -> None:
+        time.sleep(0.75)
+        with self._condition:
+            if generation != self._avatar_replay_generation or self._server is None:
+                return
         # A new avatar resets parameters, so replay the service's current state.
         self.send_status(self.status)
         self.send_motion_enabled(self.motion_enabled)
@@ -112,28 +164,120 @@ class VRChatOscController:
         self.send_motion_gesture(gesture)
         self.send_motion_expression(expression)
 
+    def _on_status(self, _address: str, value: object) -> None:
+        try:
+            status = AgentStatus(int(value))
+        except (TypeError, ValueError):
+            return
+        with self._condition:
+            self._observed_status = status
+            self._status_version += 1
+            self._condition.notify_all()
+
     def _on_motion_enabled(self, _address: str, value: object) -> None:
         with self._condition:
             self._motion_enabled = bool(value)
+            self._observed_motion_enabled = bool(value)
             self._condition.notify_all()
+
+    def _on_motion_activity(self, _address: str, value: object) -> None:
+        try:
+            activity = max(0, min(2, int(value)))
+        except (TypeError, ValueError):
+            return
+        with self._condition:
+            self._observed_motion_activity = activity
+            self._condition.notify_all()
+
+    def _on_motion_energy(self, _address: str, value: object) -> None:
+        try:
+            energy = max(0.0, min(1.0, float(value)))
+        except (TypeError, ValueError):
+            return
+        with self._condition:
+            self._observed_motion_energy = energy
+            self._condition.notify_all()
+
+    def _on_motion_gesture(self, _address: str, value: object) -> None:
+        try:
+            gesture = max(0, min(9, int(value)))
+        except (TypeError, ValueError):
+            return
+        with self._condition:
+            self._observed_motion_gesture = gesture
+            self._condition.notify_all()
+
+    def _on_motion_expression(self, _address: str, value: object) -> None:
+        try:
+            expression = max(0, min(6, int(value)))
+        except (TypeError, ValueError):
+            return
+        with self._condition:
+            self._observed_motion_expression = expression
+            self._condition.notify_all()
+
+    def feedback_snapshot(self) -> dict[str, object]:
+        with self._condition:
+            return {
+                "status": None if self._observed_status is None else int(self._observed_status),
+                "status_target": int(self._status),
+                "status_confirmed": self._observed_status == self._status,
+                "motion_enabled": self._observed_motion_enabled,
+                "motion_enabled_target": self._motion_enabled,
+                "activity": self._observed_motion_activity,
+                "activity_target": self._motion_activity,
+                "energy": self._observed_motion_energy,
+                "energy_target": self._motion_energy,
+                "gesture": self._observed_motion_gesture,
+                "gesture_target": self._motion_gesture,
+                "expression": self._observed_motion_expression,
+                "expression_target": self._motion_expression,
+            }
 
     def send_status(self, status: AgentStatus | int) -> None:
         status = AgentStatus(int(status))
         with self._condition:
             self._status = status
         address = f"/avatar/parameters/{self.config.status_parameter}"
-        self._client.send_message(address, int(status))
+        self._send_message_reliably(address, int(status))
+
+    def set_status_confirmed(self, status: AgentStatus | int) -> AgentStatus:
+        status = AgentStatus(int(status))
+        if self._server is None:
+            raise RuntimeError("OSC listener is not running")
+        for _attempt in range(max(2, self.config.mute_retry_count + 1)):
+            with self._condition:
+                if self._observed_status == status:
+                    self._status = status
+                    return status
+                before_version = self._status_version
+            self.send_status(status)
+            deadline = time.monotonic() + self.config.mute_confirm_timeout_sec
+            with self._condition:
+                while self._status_version == before_version:
+                    remaining = deadline - time.monotonic()
+                    if remaining <= 0:
+                        break
+                    self._condition.wait(remaining)
+                if self._observed_status == status:
+                    return status
+        actual = self.feedback_snapshot()["status"]
+        raise RuntimeError(
+            "VRChat did not confirm VoiceAgentStatus "
+            f"{int(status)} (actual: {actual if actual is not None else 'unknown'}). "
+            "Check that VRChat OSC is enabled and the current avatar is the AI avatar."
+        )
 
     def send_motion_enabled(self, enabled: bool) -> None:
         with self._condition:
             self._motion_enabled = bool(enabled)
-        self._send_parameter(self.config.motion_enabled_parameter, bool(enabled))
+        self._send_parameter_reliably(self.config.motion_enabled_parameter, bool(enabled))
 
     def send_motion_activity(self, activity: int) -> None:
         activity = max(0, min(2, int(activity)))
         with self._condition:
             self._motion_activity = activity
-        self._send_parameter(self.config.motion_activity_parameter, activity)
+        self._send_parameter_reliably(self.config.motion_activity_parameter, activity)
 
     def send_motion_energy(self, energy: float) -> None:
         energy = max(0.0, min(1.0, float(energy)))
@@ -145,16 +289,27 @@ class VRChatOscController:
         gesture = max(0, min(9, int(gesture)))
         with self._condition:
             self._motion_gesture = gesture
-        self._send_parameter(self.config.motion_gesture_parameter, gesture)
+        self._send_parameter_reliably(self.config.motion_gesture_parameter, gesture)
 
     def send_motion_expression(self, expression: int) -> None:
         expression = max(0, min(6, int(expression)))
         with self._condition:
             self._motion_expression = expression
-        self._send_parameter(self.config.motion_expression_parameter, expression)
+        self._send_parameter_reliably(self.config.motion_expression_parameter, expression)
 
     def _send_parameter(self, parameter: str, value: object) -> None:
         self._client.send_message(f"/avatar/parameters/{parameter}", value)
+
+    def _send_parameter_reliably(self, parameter: str, value: object) -> None:
+        self._send_message_reliably(f"/avatar/parameters/{parameter}", value)
+
+    def _send_message_reliably(self, address: str, value: object) -> None:
+        # OSC uses UDP. Three closely spaced copies make static state changes much
+        # less likely to disappear while keeping normal energy updates single-shot.
+        for attempt in range(3):
+            self._client.send_message(address, value)
+            if attempt < 2:
+                time.sleep(0.035)
 
     def _pulse_voice(self) -> None:
         self._client.send_message("/input/Voice", True)

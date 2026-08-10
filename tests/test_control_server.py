@@ -31,6 +31,20 @@ class FakeService:
     def snapshot(self) -> dict[str, object]:
         return {
             "status": 0,
+            "avatar": {
+                "status": 0,
+                "status_target": 0,
+                "motion_enabled": True,
+                "motion_enabled_target": True,
+                "activity": 0,
+                "activity_target": 0,
+                "energy": 0.0,
+                "energy_target": 0.0,
+                "gesture": 0,
+                "gesture_target": 0,
+                "expression": 0,
+                "expression_target": 0,
+            },
             "muted": self.muted,
             "loop": {"enabled": self.loop_enabled, "running": self.loop_enabled, "triggered": False},
             "motion": {
@@ -87,6 +101,9 @@ class ControlServerTests(unittest.TestCase):
         self.assertIn("/api/motion/diagnostic/activity", CONTROL_HTML)
         self.assertIn("/api/motion/diagnostic/gesture", CONTROL_HTML)
         self.assertIn("/api/motion/diagnostic/expression", CONTROL_HTML)
+        self.assertIn("status_target", CONTROL_HTML)
+        self.assertIn("未反映→", CONTROL_HTML)
+        self.assertIn("VRChat ${actualEnergy}", CONTROL_HTML)
         self.assertIn("全動作テスト（約49秒）", CONTROL_HTML)
         self.assertIn("アバター自動モーション", CONTROL_HTML)
         self.assertIn("監視を無効化", CONTROL_HTML)
