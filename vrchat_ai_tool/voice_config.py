@@ -40,6 +40,7 @@ class VoiceOscConfig:
     motion_activity_parameter: str = "VoiceAgentActivity"
     motion_energy_parameter: str = "VoiceAgentEnergy"
     motion_gesture_parameter: str = "VoiceAgentGesture"
+    motion_expression_parameter: str = "VoiceAgentExpression"
     voice_input_mode: str = "toggle"
     mute_confirm_timeout_sec: float = 2.0
     mute_retry_count: int = 2
@@ -84,6 +85,8 @@ class VoiceMotionConfig:
     idle_gesture_max_sec: float = 18.0
     speaking_gesture_min_sec: float = 2.8
     speaking_gesture_max_sec: float = 5.8
+    speaking_expression_min_sec: float = 2.0
+    speaking_expression_max_sec: float = 4.0
 
 
 @dataclass(slots=True)

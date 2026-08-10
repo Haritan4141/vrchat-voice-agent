@@ -46,6 +46,9 @@ class FakeOsc:
     def send_motion_gesture(self, gesture: int) -> None:
         self.messages.append(("gesture", gesture))
 
+    def send_motion_expression(self, expression: int) -> None:
+        self.messages.append(("expression", expression))
+
 
 class MotionServiceTests(unittest.TestCase):
     def setUp(self) -> None:
@@ -60,6 +63,8 @@ class MotionServiceTests(unittest.TestCase):
             idle_gesture_max_sec=1.0,
             speaking_gesture_min_sec=0.5,
             speaking_gesture_max_sec=0.5,
+            speaking_expression_min_sec=0.5,
+            speaking_expression_max_sec=0.5,
         )
         self.service = MotionService(
             self.config,
@@ -89,6 +94,48 @@ class MotionServiceTests(unittest.TestCase):
         self.clock.advance(0.2)
         self.service.on_audio_level(0.0)
         self.assertEqual(self.service.snapshot()["activity"], int(MotionActivity.IDLE))
+        self.assertEqual(self.service.snapshot()["last_expression"], 0)
+
+    def test_speaking_expression_changes_without_repeating_and_resets(self) -> None:
+        self.service.on_audio_level(1800.0)
+        self.clock.advance(0.2)
+        self.service.on_audio_level(1800.0)
+
+        first = self.service.snapshot()["last_expression"]
+        self.assertEqual(first, 1)
+
+        self.clock.advance(0.5)
+        self.service.on_audio_level(1800.0)
+        second = self.service.snapshot()["last_expression"]
+        self.assertEqual(second, 0)
+        self.assertNotEqual(first, second)
+
+        for _ in range(4):
+            self.clock.advance(0.1)
+            self.service.on_audio_level(0.0)
+        self.assertEqual(self.service.snapshot()["last_expression"], 0)
+        self.assertIn(("expression", 0), self.osc.messages)
+
+    def test_diagnostic_test_bypasses_audio_and_restores_neutral(self) -> None:
+        self.service.start_diagnostic_test()
+
+        snapshot = self.service.snapshot()
+        self.assertTrue(snapshot["diagnostic_running"])
+        self.assertEqual(snapshot["activity"], int(MotionActivity.SPEAKING))
+        self.assertEqual(snapshot["last_expression"], 1)
+        self.assertIn(("energy", 0.72), self.osc.messages)
+
+        self.service.on_audio_level(0.0)
+        self.assertEqual(
+            self.service.snapshot()["activity"],
+            int(MotionActivity.SPEAKING),
+        )
+
+        self.service.stop_diagnostic_test()
+        stopped = self.service.snapshot()
+        self.assertFalse(stopped["diagnostic_running"])
+        self.assertEqual(stopped["activity"], int(MotionActivity.IDLE))
+        self.assertEqual(stopped["last_expression"], 0)
 
     def test_idle_gesture_is_randomised_without_repeating_last_value(self) -> None:
         self.clock.advance(1.0)
@@ -99,7 +146,7 @@ class MotionServiceTests(unittest.TestCase):
         self.clock.advance(1.0)
         self.service.on_audio_level(0.0)
         second = self.service.snapshot()["last_gesture"]
-        self.assertNotEqual(second, first)
+        self.assertEqual(second, 5)
 
     def test_mute_suppresses_speaking_motion(self) -> None:
         self.osc.mute_state = True

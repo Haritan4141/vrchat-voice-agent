@@ -67,6 +67,7 @@ class ControlServerTests(unittest.TestCase):
         self.assertIn("forgetToken()", CONTROL_HTML)
         self.assertIn("/api/loop/enabled", CONTROL_HTML)
         self.assertIn("/api/motion/enabled", CONTROL_HTML)
+        self.assertIn("/api/motion/test", CONTROL_HTML)
         self.assertIn("アバター自動モーション", CONTROL_HTML)
         self.assertIn("監視を無効化", CONTROL_HTML)
 

@@ -43,6 +43,7 @@ class VRChatOscController:
         self._motion_activity = 0
         self._motion_energy = 0.0
         self._motion_gesture = 0
+        self._motion_expression = 0
 
     @property
     def mute_state(self) -> bool | None:
@@ -105,9 +106,11 @@ class VRChatOscController:
             activity = self._motion_activity
             energy = self._motion_energy
             gesture = self._motion_gesture
+            expression = self._motion_expression
         self.send_motion_activity(activity)
         self.send_motion_energy(energy)
         self.send_motion_gesture(gesture)
+        self.send_motion_expression(expression)
 
     def _on_motion_enabled(self, _address: str, value: object) -> None:
         with self._condition:
@@ -139,10 +142,16 @@ class VRChatOscController:
         self._send_parameter(self.config.motion_energy_parameter, energy)
 
     def send_motion_gesture(self, gesture: int) -> None:
-        gesture = max(0, min(4, int(gesture)))
+        gesture = max(0, min(9, int(gesture)))
         with self._condition:
             self._motion_gesture = gesture
         self._send_parameter(self.config.motion_gesture_parameter, gesture)
+
+    def send_motion_expression(self, expression: int) -> None:
+        expression = max(0, min(6, int(expression)))
+        with self._condition:
+            self._motion_expression = expression
+        self._send_parameter(self.config.motion_expression_parameter, expression)
 
     def _send_parameter(self, parameter: str, value: object) -> None:
         self._client.send_message(f"/avatar/parameters/{parameter}", value)

@@ -29,6 +29,8 @@ class VoiceConfigTests(unittest.TestCase):
             self.assertEqual(config.loop_guard.min_match_duration_ms, 1500)
             self.assertTrue(config.motion.enabled)
             self.assertEqual(config.osc.motion_activity_parameter, "VoiceAgentActivity")
+            self.assertEqual(config.osc.motion_expression_parameter, "VoiceAgentExpression")
+            self.assertEqual(config.motion.speaking_expression_min_sec, 2.0)
 
     def test_loop_guard_switch_is_persisted_without_losing_other_settings(self) -> None:
         with tempfile.TemporaryDirectory() as directory:

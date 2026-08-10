@@ -18,6 +18,13 @@ class MotionActivity(IntEnum):
     SETTLING = 2
 
 
+# Repeated values are deliberate weights. The immediately previous gesture is
+# removed before drawing so the avatar never repeats the same accent back-to-back.
+IDLE_GESTURE_CHOICES = (1, 1, 1, 5, 8, 8, 8, 9)
+SPEAKING_GESTURE_CHOICES = (1, 1, 1, 2, 2, 3, 3, 4, 4, 5, 6, 6, 7, 7)
+SPEAKING_EXPRESSION_CHOICES = (0, 1, 2, 3, 4, 5, 6)
+
+
 class MotionOsc(Protocol):
     @property
     def mute_state(self) -> bool | None: ...
@@ -36,6 +43,8 @@ class MotionOsc(Protocol):
 
     def send_motion_gesture(self, gesture: int) -> None: ...
 
+    def send_motion_expression(self, expression: int) -> None: ...
+
 
 @dataclass(slots=True)
 class MotionSnapshot:
@@ -46,6 +55,8 @@ class MotionSnapshot:
     energy: float = 0.0
     input_rms: float = 0.0
     last_gesture: int = 0
+    last_expression: int = 0
+    diagnostic_running: bool = False
 
     def to_dict(self) -> dict[str, object]:
         return asdict(self)
@@ -78,6 +89,10 @@ class MotionService:
         self._settling_until = 0.0
         self._next_gesture_at = 0.0
         self._last_gesture = 0
+        self._next_expression_at = 0.0
+        self._last_expression = 0
+        self._diagnostic_running = False
+        self._diagnostic_generation = 0
 
     @property
     def enabled(self) -> bool:
@@ -95,10 +110,15 @@ class MotionService:
             self._settling_until = 0.0
             self._last_gesture = 0
             self._next_gesture_at = now + self._gesture_interval(MotionActivity.IDLE)
+            self._last_expression = 0
+            self._next_expression_at = 0.0
+            self._diagnostic_running = False
+            self._diagnostic_generation += 1
         self.osc.send_motion_enabled(self.config.enabled)
         self.osc.send_motion_activity(int(MotionActivity.IDLE))
         self.osc.send_motion_energy(0.0)
         self.osc.send_motion_gesture(0)
+        self.osc.send_motion_expression(0)
 
     def stop(self) -> None:
         with self._lock:
@@ -106,10 +126,15 @@ class MotionService:
             self._running = False
             self._activity = MotionActivity.IDLE
             self._energy = 0.0
+            self._last_expression = 0
+            self._next_expression_at = 0.0
+            self._diagnostic_running = False
+            self._diagnostic_generation += 1
         if was_running:
             self.osc.send_motion_activity(int(MotionActivity.IDLE))
             self.osc.send_motion_energy(0.0)
             self.osc.send_motion_gesture(0)
+            self.osc.send_motion_expression(0)
             self.osc.send_motion_enabled(False)
 
     def set_enabled(self, enabled: bool) -> None:
@@ -123,10 +148,15 @@ class MotionService:
             self._last_sent_energy = -1.0
             self._last_gesture = 0
             self._next_gesture_at = now + self._gesture_interval(MotionActivity.IDLE)
+            self._last_expression = 0
+            self._next_expression_at = 0.0
+            self._diagnostic_running = False
+            self._diagnostic_generation += 1
         self.osc.send_motion_enabled(enabled)
         self.osc.send_motion_activity(int(MotionActivity.IDLE))
         self.osc.send_motion_energy(0.0)
         self.osc.send_motion_gesture(0)
+        self.osc.send_motion_expression(0)
 
     def snapshot(self) -> dict[str, object]:
         with self._lock:
@@ -138,8 +168,86 @@ class MotionService:
                 energy=round(self._energy, 3),
                 input_rms=round(self._input_rms, 1),
                 last_gesture=self._last_gesture,
+                last_expression=self._last_expression,
+                diagnostic_running=self._diagnostic_running,
             )
         return value.to_dict()
+
+    def start_diagnostic_test(self) -> None:
+        """Send an isolated speaking/expression sequence to VRChat.
+
+        Audio-driven updates are temporarily held so this test can distinguish an
+        OSC/Animator problem from a CABLE-B level-detection problem. The sequence
+        always restores the neutral parameters, even if the control page closes.
+        """
+        with self._lock:
+            if not self._running:
+                raise RuntimeError("Avatar motion service is not running")
+            if not self.osc.motion_enabled:
+                raise RuntimeError("Enable avatar motion before running the test")
+            self._diagnostic_generation += 1
+            generation = self._diagnostic_generation
+            self._diagnostic_running = True
+            self._activity = MotionActivity.SPEAKING
+            self._energy = 0.72
+            self._last_gesture = 1
+            self._last_expression = 1
+
+        self.osc.send_motion_activity(int(MotionActivity.SPEAKING))
+        self.osc.send_motion_energy(0.72)
+        self.osc.send_motion_gesture(1)
+        self.osc.send_motion_expression(1)
+
+        thread = threading.Thread(
+            target=self._run_diagnostic_test,
+            args=(generation,),
+            name="voice-agent-motion-test",
+            daemon=True,
+        )
+        thread.start()
+
+    def stop_diagnostic_test(self) -> None:
+        now = self._clock()
+        with self._lock:
+            self._diagnostic_generation += 1
+            was_running = self._diagnostic_running
+            self._diagnostic_running = False
+            self._activity = MotionActivity.IDLE
+            self._energy = 0.0
+            self._last_gesture = 0
+            self._last_expression = 0
+            self._above_since = None
+            self._below_since = None
+            self._settling_until = 0.0
+            self._next_gesture_at = now + self._gesture_interval(MotionActivity.IDLE)
+            self._next_expression_at = 0.0
+        if was_running:
+            self.osc.send_motion_activity(int(MotionActivity.IDLE))
+            self.osc.send_motion_energy(0.0)
+            self.osc.send_motion_gesture(0)
+            self.osc.send_motion_expression(0)
+
+    def _run_diagnostic_test(self, generation: int) -> None:
+        try:
+            # Keep each face visible long enough to confirm repeated transitions.
+            for expression in (2, 3, 4, 5, 6, 0):
+                time.sleep(0.8)
+                with self._lock:
+                    if (
+                        not self._diagnostic_running
+                        or generation != self._diagnostic_generation
+                    ):
+                        return
+                    self._last_expression = expression
+                self.osc.send_motion_expression(expression)
+        finally:
+            with self._lock:
+                should_stop = (
+                    self._diagnostic_running
+                    and generation == self._diagnostic_generation
+                )
+            if should_stop:
+                self.stop_diagnostic_test()
 
     def on_audio_level(self, rms: float) -> None:
         now = self._clock()
@@ -148,6 +256,8 @@ class MotionService:
             if not self._running:
                 return
             self._input_rms = max(0.0, float(rms))
+            if self._diagnostic_running:
+                return
             blocked = self.osc.mute_state is True or self.osc.status == AgentStatus.ERROR
             motion_enabled = self.osc.motion_enabled
             effective_rms = 0.0 if blocked or not motion_enabled else self._input_rms
@@ -157,6 +267,21 @@ class MotionService:
                 self._activity = next_activity
                 self._next_gesture_at = now + self._gesture_interval(next_activity)
                 sends.append(("activity", int(next_activity)))
+                if next_activity == MotionActivity.SPEAKING and motion_enabled and not blocked:
+                    expression = self._choose_expression()
+                    self._last_expression = expression
+                    self._next_expression_at = now + self._expression_interval()
+                    sends.append(("expression", expression))
+                else:
+                    self._next_expression_at = 0.0
+                    if self._last_expression != 0:
+                        self._last_expression = 0
+                        sends.append(("expression", 0))
+
+            if (blocked or not motion_enabled) and self._last_expression != 0:
+                self._last_expression = 0
+                self._next_expression_at = 0.0
+                sends.append(("expression", 0))
 
             target_energy = self._normalise_energy(effective_rms)
             if self._activity != MotionActivity.SPEAKING:
@@ -184,13 +309,26 @@ class MotionService:
                 self._next_gesture_at = now + self._gesture_interval(self._activity)
                 sends.append(("gesture", gesture))
 
+            if (
+                motion_enabled
+                and not blocked
+                and self._activity == MotionActivity.SPEAKING
+                and now >= self._next_expression_at
+            ):
+                expression = self._choose_expression()
+                self._last_expression = expression
+                self._next_expression_at = now + self._expression_interval()
+                sends.append(("expression", expression))
+
         for kind, value in sends:
             if kind == "activity":
                 self.osc.send_motion_activity(int(value))
             elif kind == "energy":
                 self.osc.send_motion_energy(float(value))
-            else:
+            elif kind == "gesture":
                 self.osc.send_motion_gesture(int(value))
+            else:
+                self.osc.send_motion_expression(int(value))
 
     def _update_activity(self, rms: float, now: float) -> MotionActivity:
         if self._activity == MotionActivity.IDLE:
@@ -240,6 +378,24 @@ class MotionService:
         return self._rng.uniform(low, high)
 
     def _choose_gesture(self, activity: MotionActivity) -> int:
-        choices = [1, 1, 2, 3] if activity == MotionActivity.IDLE else [1, 2, 3, 4]
+        choices = (
+            IDLE_GESTURE_CHOICES
+            if activity == MotionActivity.IDLE
+            else SPEAKING_GESTURE_CHOICES
+        )
         available = [value for value in choices if value != self._last_gesture] or choices
         return self._rng.choice(available)
+
+    def _expression_interval(self) -> float:
+        low = max(0.1, self.config.speaking_expression_min_sec)
+        high = max(0.1, self.config.speaking_expression_max_sec)
+        low, high = sorted((low, high))
+        return self._rng.uniform(low, high)
+
+    def _choose_expression(self) -> int:
+        available = [
+            value
+            for value in SPEAKING_EXPRESSION_CHOICES
+            if value != self._last_expression
+        ]
+        return self._rng.choice(available or list(SPEAKING_EXPRESSION_CHOICES))

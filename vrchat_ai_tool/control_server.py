@@ -44,7 +44,8 @@ small{color:#aac0cf}dl{display:grid;grid-template-columns:150px 1fr;gap:6px;marg
 <div class="card"><h2>現在の状態</h2><dl>
 <dt>アバター表示</dt><dd id="agentStatus">—</dd><dt>VRChatマイク</dt><dd id="mic">—</dd>
 <dt>ループ監視</dt><dd id="loop">—</dd><dt>CABLE-A / B</dt><dd id="levels">—</dd>
-<dt>自動モーション</dt><dd id="motion">—</dd><dt>発話レベル</dt><dd id="motionLevel">—</dd></dl>
+<dt>自動モーション</dt><dd id="motion">—</dd><dt>発話レベル</dt><dd id="motionLevel">—</dd>
+<dt>発話表情</dt><dd id="motionExpression">—</dd></dl>
 <div id="message"></div></div>
 <div class="card"><h2>緊急ミュート</h2><div class="grid">
 <button class="danger" onclick="post('/api/mic/mute')">ミュート</button>
@@ -57,14 +58,16 @@ small{color:#aac0cf}dl{display:grid;grid-template-columns:150px 1fr;gap:6px;marg
 <small>設定はサブPCへ保存され、次回起動時にも引き継がれます。無効中も手動ミュートは使えます。</small></div>
 <div class="card"><h2>アバター自動モーション</h2><div class="grid">
 <button class="ok" onclick="setMotion(true)">モーションを有効化</button>
-<button class="danger" onclick="setMotion(false)">モーションを停止</button></div>
-<small>待機中は自然な微動、ChatGPT Voiceの発話中は音量に合わせた身振りへ切り替わります。</small></div>
+<button class="danger" onclick="setMotion(false)">モーションを停止</button>
+<button class="warn" onclick="post('/api/motion/test')">約5秒の動作テスト</button></div>
+<small>動作テストはCABLE-Bの音声検出を使わず、発話動作・頷き・7表情を順にOSC送信します。終了後は自動で待機状態へ戻ります。</small></div>
 <div class="card"><h2>アバター状態表示</h2><div class="grid">
 <button onclick="setStatus(0)">0 STOPPED</button><button class="ok" onclick="setStatus(1)">1 ONLINE</button>
 <button class="danger" onclick="setStatus(2)">2 ERROR</button><button class="warn" onclick="setStatus(3)">3 MAINTENANCE</button>
 </div></div>
 <script>
-const names=['STOPPED','ONLINE','ERROR','MAINTENANCE']; let timer=null;
+const names=['STOPPED','ONLINE','ERROR','MAINTENANCE'];
+const faceNames=['通常','Open','FingerPoint','Victory','Rock&Roll','Gun','ThumbsUp']; let timer=null;
 function token(){let value=localStorage.getItem('voiceAgentToken')||'';if(!value){value=sessionStorage.getItem('voiceAgentToken')||'';if(value)localStorage.setItem('voiceAgentToken',value)}return value}
 function saveToken(){const value=document.getElementById('token').value.trim();if(!value){message('トークンを入力してください',true);return}localStorage.setItem('voiceAgentToken',value);sessionStorage.removeItem('voiceAgentToken');refresh();if(!timer)timer=setInterval(refresh,1500)}
 function forgetToken(){localStorage.removeItem('voiceAgentToken');sessionStorage.removeItem('voiceAgentToken');document.getElementById('token').value='';if(timer){clearInterval(timer);timer=null}message('保存したトークンを削除しました')}
@@ -76,8 +79,9 @@ async function refresh(){if(!token())return;try{const d=await request('/api/stat
  const m=d.muted===null?'未確認':(d.muted?'MUTED':'OPEN');document.getElementById('mic').textContent=m;
  document.getElementById('loop').textContent=d.loop.enabled===false?'無効':(d.loop.triggered?`LOOP DETECTED (${d.loop.score}, ${d.loop.delay_ms}ms)`:(d.loop.running?'監視中':'停止中'));
  document.getElementById('levels').textContent=`${d.loop.cable_a_rms} / ${d.loop.cable_b_rms}`;
- document.getElementById('motion').textContent=d.motion.enabled?`${d.motion.activity_name} / ON`:'OFF';
- document.getElementById('motionLevel').textContent=`RMS ${d.motion.input_rms} / ENERGY ${d.motion.energy}`;if(d.last_error)message(d.last_error,true)}catch(e){message(e.message,true)}}
+ document.getElementById('motion').textContent=d.motion.enabled?`${d.motion.activity_name}${d.motion.diagnostic_running?' / TEST':''} / ON`:'OFF';
+ document.getElementById('motionLevel').textContent=`RMS ${d.motion.input_rms} / ENERGY ${d.motion.energy}`;
+ document.getElementById('motionExpression').textContent=`${d.motion.last_expression} ${faceNames[d.motion.last_expression]||'—'}`;if(d.last_error)message(d.last_error,true)}catch(e){message(e.message,true)}}
 document.getElementById('token').value=token();if(token()){refresh();timer=setInterval(refresh,1500)}
 </script></body></html>"""
 
@@ -291,6 +295,9 @@ def make_handler(
                         if enabled
                         else "自動モーションを停止しました"
                     )
+                elif self.path == "/api/motion/test":
+                    service.motion.start_diagnostic_test()
+                    message = "発話動作・表情のOSCテストを開始しました"
                 elif self.path == "/api/loop/enabled":
                     enabled = body["enabled"]
                     if not isinstance(enabled, bool):

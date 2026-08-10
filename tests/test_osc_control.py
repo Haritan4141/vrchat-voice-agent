@@ -51,14 +51,16 @@ class OscControlTests(unittest.TestCase):
         controller.send_motion_activity(1)
         controller.send_motion_energy(0.62)
         controller.send_motion_gesture(4)
+        controller.send_motion_expression(3)
 
         self.assertEqual(
-            fake.messages[-4:],
+            fake.messages[-5:],
             [
                 ("/avatar/parameters/VoiceAgentMotionEnabled", True),
                 ("/avatar/parameters/VoiceAgentActivity", 1),
                 ("/avatar/parameters/VoiceAgentEnergy", 0.62),
                 ("/avatar/parameters/VoiceAgentGesture", 4),
+                ("/avatar/parameters/VoiceAgentExpression", 3),
             ],
         )
 
@@ -70,6 +72,38 @@ class OscControlTests(unittest.TestCase):
         controller._on_motion_enabled("/avatar/parameters/VoiceAgentMotionEnabled", False)
 
         self.assertFalse(controller.motion_enabled)
+
+    def test_motion_gesture_supports_nine_motions(self) -> None:
+        fake = FakeClient()
+        controller = VRChatOscController(VoiceOscConfig(), client_factory=lambda _h, _p: fake)
+        fake.controller = controller
+
+        controller.send_motion_gesture(9)
+        controller.send_motion_gesture(99)
+
+        self.assertEqual(
+            fake.messages[-2:],
+            [
+                ("/avatar/parameters/VoiceAgentGesture", 9),
+                ("/avatar/parameters/VoiceAgentGesture", 9),
+            ],
+        )
+
+    def test_motion_expression_is_clamped_to_seven_faces(self) -> None:
+        fake = FakeClient()
+        controller = VRChatOscController(VoiceOscConfig(), client_factory=lambda _h, _p: fake)
+        fake.controller = controller
+
+        controller.send_motion_expression(6)
+        controller.send_motion_expression(99)
+
+        self.assertEqual(
+            fake.messages[-2:],
+            [
+                ("/avatar/parameters/VoiceAgentExpression", 6),
+                ("/avatar/parameters/VoiceAgentExpression", 6),
+            ],
+        )
 
 
 if __name__ == "__main__":
