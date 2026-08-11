@@ -13,6 +13,7 @@ from .chatgpt_ui_diagnostic import (
     SnapshotProvider,
     UiElementRecord,
     UiScanResult,
+    windows_com_apartment,
 )
 
 DEFAULT_PROMPT_PATH = Path("system_prompt.txt")
@@ -339,42 +340,39 @@ class WindowsPromptSender:
                 "pywinauto is not installed. Run 'uv sync' in the project folder."
             ) from exc
 
-        pythoncom.CoInitialize()
-        original_clipboard = None
-        original_available = False
-        try:
+        with windows_com_apartment():
+            original_clipboard = None
+            original_available = False
             try:
-                original_clipboard = pythoncom.OleGetClipboard()
-                original_available = original_clipboard is not None
-            except Exception:  # noqa: BLE001 - an empty clipboard can raise a COM error
-                original_clipboard = None
+                try:
+                    original_clipboard = pythoncom.OleGetClipboard()
+                    original_available = original_clipboard is not None
+                except Exception:  # noqa: BLE001 - an empty clipboard can raise a COM error
+                    original_clipboard = None
 
-            self._put_prompt_on_clipboard(win32clipboard, prompt)
-            WindowsUiClicker().click(target)
-            if win32gui.GetForegroundWindow() != target.window_handle:
-                raise PromptInjectionError(
-                    "ChatGPT lost focus before pasting; nothing was submitted."
-                )
-            keyboard.send_keys("^v", pause=0.02)
-            time.sleep(0.35)
-
-            if submit_key != "none":
+                self._put_prompt_on_clipboard(win32clipboard, prompt)
+                WindowsUiClicker().click(target)
                 if win32gui.GetForegroundWindow() != target.window_handle:
                     raise PromptInjectionError(
-                        "ChatGPT lost focus after pasting; the prompt was not submitted."
+                        "ChatGPT lost focus before pasting; nothing was submitted."
                     )
-                keys = "{ENTER}" if submit_key == "enter" else "^{ENTER}"
-                keyboard.send_keys(keys, pause=0.02)
-                time.sleep(0.2)
-        finally:
-            try:
+                keyboard.send_keys("^v", pause=0.02)
+                time.sleep(0.35)
+
+                if submit_key != "none":
+                    if win32gui.GetForegroundWindow() != target.window_handle:
+                        raise PromptInjectionError(
+                            "ChatGPT lost focus after pasting; the prompt was not submitted."
+                        )
+                    keys = "{ENTER}" if submit_key == "enter" else "^{ENTER}"
+                    keyboard.send_keys(keys, pause=0.02)
+                    time.sleep(0.2)
+            finally:
                 if original_available:
                     pythoncom.OleSetClipboard(original_clipboard)
                     pythoncom.OleFlushClipboard()
                 else:
                     self._clear_clipboard(win32clipboard)
-            finally:
-                pythoncom.CoUninitialize()
 
 
 def wait_for_prompt_target(
