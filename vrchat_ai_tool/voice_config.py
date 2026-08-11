@@ -113,7 +113,10 @@ class VoiceUiMonitorConfig:
 class VoiceCaptionConfig:
     # off: no chatbox captions, uia: ChatGPT accessibility text, stt: CABLE-B STT
     mode: str = "off"
-    prefix: str = "AI: "
+    prefix: str = ""
+    # Disabled by default so older configs containing ``prefix = "AI: "`` also
+    # stop showing it without requiring a manual edit on the production PC.
+    prefix_enabled: bool = False
     max_chars: int = 144
     min_send_interval_sec: float = 1.5
     # Keep early UI changes pending long enough for the assistant response to
@@ -122,6 +125,8 @@ class VoiceCaptionConfig:
     uia_post_speech_grace_sec: float = 2.5
     # standard: small/beam 1, accuracy: medium/beam 5 with more context.
     stt_quality: str = "standard"
+    # Keep the VRChat chatbox compact even when the STT result is cumulative.
+    stt_max_chars: int = 48
     stt_model: str = "small"
     stt_device: str = "cpu"
     stt_compute_type: str = "int8"

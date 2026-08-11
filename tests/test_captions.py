@@ -5,7 +5,12 @@ import time
 import unittest
 from pathlib import Path
 
-from vrchat_ai_tool.captions import CaptionService, UiaCaptionExtractor, format_chatbox_text
+from vrchat_ai_tool.captions import (
+    CaptionService,
+    UiaCaptionExtractor,
+    format_chatbox_text,
+    latest_stt_chunk,
+)
 from vrchat_ai_tool.chatgpt_ui_diagnostic import UiElementRecord, UiScanResult
 from vrchat_ai_tool.chatgpt_ui_state import UiActivityState
 from vrchat_ai_tool.voice_config import VoiceCaptionConfig
@@ -61,6 +66,23 @@ class FakeTranscriber:
 
 
 class CaptionTests(unittest.TestCase):
+    def test_stt_chunk_prefers_recent_sentence_and_stays_compact(self) -> None:
+        text = (
+            "これは最初の説明なので表示対象から外れます。"
+            "ここも途中の文章です。"
+            "最後に表示したい短いフレーズです。"
+        )
+
+        result = latest_stt_chunk(text, 24)
+
+        self.assertEqual(result, "最後に表示したい短いフレーズです。")
+        self.assertLessEqual(len(result), 24)
+
+    def test_stt_chunk_uses_ellipsis_for_one_very_long_sentence(self) -> None:
+        result = latest_stt_chunk("あ" * 80, 20)
+
+        self.assertEqual(result, "…" + "あ" * 19)
+
     def test_accuracy_preset_uses_medium_and_more_context(self) -> None:
         config = VoiceCaptionConfig(stt_quality="accuracy")
         service = CaptionService(config, FakeOsc())
@@ -162,7 +184,7 @@ class CaptionTests(unittest.TestCase):
             now[0] = 11.2
             service.on_ui_scan(scan(history, user, answer))
             self.assertTrue(osc.sent.wait(1.0))
-            self.assertEqual(osc.chatbox[-1], "AI: AI側の回答です")
+            self.assertEqual(osc.chatbox[-1], "AI側の回答です")
         finally:
             service.stop()
 
@@ -194,7 +216,7 @@ class CaptionTests(unittest.TestCase):
             now[0] = 21.1
             service.on_ui_scan(scan(user, answer))
             self.assertTrue(osc.sent.wait(1.0))
-            self.assertEqual(osc.chatbox[-1], "AI: こちらがAIの回答")
+            self.assertEqual(osc.chatbox[-1], "こちらがAIの回答")
         finally:
             service.stop()
 
@@ -225,11 +247,52 @@ class CaptionTests(unittest.TestCase):
             service.on_audio_chunk(b"\x00\x00" * 100, 0.0)
 
             self.assertTrue(osc.sent.wait(2.0))
-            self.assertEqual(osc.chatbox[-1], "AI: こんにちは、音声字幕です")
+            self.assertEqual(osc.chatbox[-1], "こんにちは、音声字幕です")
             self.assertTrue(transcriber.warmed)
             self.assertIn(True, osc.typing)
             self.assertEqual(osc.typing[-1], False)
             self.assertEqual(service.snapshot()["stt_state"], "ready")
+        finally:
+            service.stop()
+
+    def test_stt_output_uses_separate_short_vrchat_limit(self) -> None:
+        osc = FakeOsc()
+        service = CaptionService(
+            VoiceCaptionConfig(
+                mode="off",
+                prefix="AI: ",
+                prefix_enabled=True,
+                max_chars=144,
+                stt_max_chars=48,
+                min_send_interval_sec=0.0,
+            ),
+            osc,
+        )
+        service.start()
+        try:
+            service._publish("長い文章です。" + "あ" * 100, "stt")
+            self.assertTrue(osc.sent.wait(1.0))
+            self.assertLessEqual(len(osc.chatbox[-1]), 48)
+            self.assertTrue(osc.chatbox[-1].startswith("AI: "))
+        finally:
+            service.stop()
+
+    def test_legacy_prefix_is_hidden_unless_explicitly_enabled(self) -> None:
+        osc = FakeOsc()
+        service = CaptionService(
+            VoiceCaptionConfig(
+                mode="off",
+                prefix="AI: ",
+                prefix_enabled=False,
+                min_send_interval_sec=0.0,
+            ),
+            osc,
+        )
+        service.start()
+        try:
+            service._publish("短い字幕です。", "stt")
+            self.assertTrue(osc.sent.wait(1.0))
+            self.assertEqual(osc.chatbox[-1], "短い字幕です。")
         finally:
             service.stop()
 

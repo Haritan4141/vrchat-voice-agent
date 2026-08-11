@@ -42,7 +42,10 @@ class VoiceConfigTests(unittest.TestCase):
             self.assertTrue(config.ui_monitor.include_offscreen)
             self.assertEqual(config.ui_monitor.release_hold_sec, 2.5)
             self.assertEqual(config.captions.mode, "off")
+            self.assertEqual(config.captions.prefix, "")
+            self.assertFalse(config.captions.prefix_enabled)
             self.assertEqual(config.captions.stt_quality, "standard")
+            self.assertEqual(config.captions.stt_max_chars, 48)
             self.assertEqual(config.captions.stt_model, "small")
 
     def test_loop_guard_switch_is_persisted_without_losing_other_settings(self) -> None:

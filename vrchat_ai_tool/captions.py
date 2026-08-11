@@ -33,6 +33,8 @@ STT_QUALITY_PRESETS = {
     },
 }
 _TEXT_CONTENT_PATTERN = re.compile(r"[0-9A-Za-zぁ-んァ-ヶ一-龯]")
+_STT_SENTENCE_BOUNDARIES = "。！？!?"
+_STT_PHRASE_BOUNDARIES = "、,"
 _UI_TEXT_MARKERS = (
     "ウェブを検索中",
     "webを検索中",
@@ -78,6 +80,26 @@ def format_chatbox_text(text: str, prefix: str, max_chars: int) -> str:
     if len(clean_text) > available:
         clean_text = "…" + clean_text[-max(1, available - 1) :]
     return (clean_prefix + clean_text)[:limit]
+
+
+def latest_stt_chunk(text: str, max_chars: int) -> str:
+    """Return a compact, preferably punctuation-aligned tail of cumulative STT."""
+    clean = normalize_caption_text(text)
+    limit = max(1, int(max_chars))
+    if len(clean) <= limit:
+        return clean
+
+    tail_start = len(clean) - limit
+    minimum_suffix = min(8, max(2, limit // 4))
+    for boundaries in (_STT_SENTENCE_BOUNDARIES, _STT_PHRASE_BOUNDARIES):
+        for index in range(tail_start, len(clean)):
+            if clean[index] not in boundaries:
+                continue
+            start = index + 1
+            suffix = clean[start:].lstrip()
+            if len(suffix) >= minimum_suffix:
+                return suffix
+    return "…" + clean[-max(1, limit - 1) :]
 
 
 def _rectangle_key(record: UiElementRecord) -> tuple[int, int]:
@@ -477,7 +499,8 @@ class CaptionService:
                 self._finish_utterance_locked(now)
 
     def send_test_caption(self) -> None:
-        text = format_chatbox_text("字幕表示テストです", self.config.prefix, self.config.max_chars)
+        prefix = self.config.prefix if self.config.prefix_enabled else ""
+        text = format_chatbox_text("字幕表示テストです", prefix, self.config.max_chars)
         self.osc.send_chatbox(text, notify=False)
         with self._lock:
             self._last_text = text
@@ -516,7 +539,17 @@ class CaptionService:
         self._typing = typing
 
     def _publish(self, text: str, source: str) -> None:
-        formatted = format_chatbox_text(text, self.config.prefix, self.config.max_chars)
+        max_chars = self.config.max_chars
+        display_text = text
+        prefix = self.config.prefix if self.config.prefix_enabled else ""
+        if source == "stt":
+            max_chars = min(max_chars, max(1, int(self.config.stt_max_chars)))
+            normalized_prefix = normalize_caption_text(prefix)
+            prefix_length = len(normalized_prefix)
+            if normalized_prefix and prefix.endswith(" "):
+                prefix_length += 1
+            display_text = latest_stt_chunk(text, max(1, max_chars - prefix_length))
+        formatted = format_chatbox_text(display_text, prefix, max_chars)
         if not formatted:
             return
         with self._output_condition:
