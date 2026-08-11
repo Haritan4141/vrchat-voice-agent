@@ -144,6 +144,7 @@ class PromptInjectorTests(unittest.TestCase):
     def test_find_new_chat_uses_only_the_exact_visible_button(self) -> None:
         target = find_new_chat_target(
             result(
+                record("composer"),
                 record(
                     "project-chat",
                     control_type="Button",
@@ -162,6 +163,29 @@ class PromptInjectorTests(unittest.TestCase):
         )
 
         self.assertEqual(target.locator, "new-chat")
+
+    def test_find_new_chat_prefers_the_sidebar_button_when_two_are_visible(self) -> None:
+        target = find_new_chat_target(
+            result(
+                record("composer", rectangle="300,200,800,260"),
+                record(
+                    "main-new-chat",
+                    control_type="Button",
+                    name="New chat",
+                    class_name="button",
+                    rectangle="500,20,600,60",
+                ),
+                record(
+                    "sidebar-new-chat",
+                    control_type="Button",
+                    name="New chat",
+                    class_name="button",
+                    rectangle="10,20,180,60",
+                ),
+            )
+        )
+
+        self.assertEqual(target.locator, "sidebar-new-chat")
 
     def test_find_voice_start_ignores_dictation_and_busy_actions(self) -> None:
         voice = record(
