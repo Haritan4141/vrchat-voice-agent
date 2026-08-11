@@ -4,16 +4,14 @@ cd /d "%~dp0"
 
 if not exist "%~dp0system_prompt.txt" goto :missing_prompt
 
-echo Start a new GPT Live voice task in ChatGPT.
-echo When the voice task is visible, return to this window.
-echo.
-pause
+echo ChatGPT desktop must be running and idle.
+echo Opening a new task, starting GPT Live, and applying the prompt...
 
 call :find_uv
 if errorlevel 1 goto :missing_uv
 "%UV_EXE%" sync --quiet
 if errorlevel 1 goto :failed
-"%UV_EXE%" run chatgpt-voice-prompt --prompt-file "%~dp0system_prompt.txt" --wait-seconds 15
+"%UV_EXE%" run chatgpt-voice-prompt --prompt-file "%~dp0system_prompt.txt" --start-voice --wait-seconds 30 --voice-wait-seconds 45
 set "RESULT=%errorlevel%"
 echo.
 if "%RESULT%"=="0" (

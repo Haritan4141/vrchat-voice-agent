@@ -191,6 +191,17 @@ def build_parser() -> argparse.ArgumentParser:
         action="store_true",
         help="Verify that exactly one message box is available without sending input.",
     )
+    prompt_parser.add_argument(
+        "--start-voice",
+        action="store_true",
+        help="Open a new task and click the GPT Live start button before sending.",
+    )
+    prompt_parser.add_argument(
+        "--voice-wait-seconds",
+        type=float,
+        default=45.0,
+        help="Seconds to wait for GPT Live after clicking its start button.",
+    )
     return parser
 
 
@@ -347,6 +358,8 @@ def main(argv: list[str] | None = None) -> int:
                 submit_key=args.submit_key,
                 process_names=args.process_names or DEFAULT_PROCESS_NAMES,
                 dry_run=args.dry_run,
+                start_voice=args.start_voice,
+                voice_wait_seconds=args.voice_wait_seconds,
             )
     except KeyboardInterrupt:
         print("Interrupted.", file=sys.stderr)
