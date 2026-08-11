@@ -451,8 +451,11 @@ uvx ruff check vrchat_ai_tool/chatgpt_ui_state.py `
 ## 13. 2026-08-12 開始前OSC同期（最新・上記Git記述より優先）
 
 - Python側に`VoiceAgentOscProbe`（Bool、既定false）を追加。
-- GUIの`同期確認して開始`は、MAINTENANCE確認 → Probe OFF/ON/OFF往復 →
-  モーション・表情・考え中の初期値再送 → ONLINE確認の順で実行する。
+- GUIの`同期確認して開始`は、現在アバターのOSC再読み込み → MAINTENANCE確認 →
+  Probe OFF/ON/OFF往復 → モーション・表情・考え中の初期値再送 → ONLINE確認の順で実行する。
+- Action Menuの完全な「アバターリセット」専用OSC入力は公開仕様にないため、現在IDを
+  `/avatar/change`へ1回だけ送る再読み込みで代替する。IDはOSC受信値を優先し、未受信なら
+  最新VRChatログの`Loading Avatar Data:`から取得する。再通知を確認できなければONLINEへ進まない。
 - GUIにはOSC送受信先、アバターID、プローブ結果、最大往復時間、初期化結果を表示する。
 - `/avatar/change`受信後は以前の成功結果を`要再確認`として扱う。
 - `アバター状態表示`カードは`緊急ミュート`直下へ移動した。

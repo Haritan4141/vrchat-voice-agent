@@ -34,6 +34,8 @@ class VoiceConfigTests(unittest.TestCase):
             self.assertEqual(config.motion.speaking_expression_min_sec, 2.0)
             self.assertEqual(config.osc.thinking_parameter, "VoiceAgentThinking")
             self.assertEqual(config.osc.probe_parameter, "VoiceAgentOscProbe")
+            self.assertEqual(config.osc.avatar_reload_timeout_sec, 10.0)
+            self.assertEqual(config.osc.avatar_reload_settle_sec, 1.5)
             self.assertTrue(config.ui_monitor.enabled)
             self.assertTrue(config.ui_monitor.include_offscreen)
             self.assertEqual(config.ui_monitor.release_hold_sec, 2.5)

@@ -26,7 +26,9 @@ PythonサービスはChatGPTの画面をWindows UI Automationで読み取りま�
 
 ミュートは`/input/Voice`を押したあと、VRChatから返る`MuteSelf`を確認します。現在値が不明な場合でも、確認結果が希望状態と逆ならもう一度だけ切り替えるため、単純なブラインドトグルにはなりません。
 
-開始前同期では`VoiceAgentOscProbe`をOFF→ON→OFFへ変化させ、両方のエッジがVRChatのOSC出力から戻ることを確認します。成功後だけ安全な初期値とONLINEを送るため、以前のUDP取りこぼしや別アバター選択を開始前に発見できます。
+開始前同期では、現在のアバターIDをOSC受信値または最新のVRChatログから特定し、同じIDを`/avatar/change`へ1回だけ送って再読み込みを要求します。VRChatから`/avatar/change`が戻った後、`VoiceAgentOscProbe`をOFF→ON→OFFへ変化させ、両方のエッジがOSC出力から戻ることを確認します。成功後だけ安全な初期値とONLINEを送るため、以前のUDP取りこぼしや別アバター選択を開始前に発見できます。
+
+VRChatの公開OSC仕様にはAction Menuの「アバターリセット」専用入力がないため、これは現在アバターの再読み込みによるOSC上の代替手段です。IDを安全に特定できない場合、再読み込み通知が返らない場合、途中で別アバターへ変わった場合はONLINEへ進みません。
 
 ## 自己ループ検出
 

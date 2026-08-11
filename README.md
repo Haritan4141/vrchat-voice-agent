@@ -22,7 +22,7 @@ ChatGPT Voice出力
 - 自己ループ監視: CABLE-Bの音声包絡が遅れてCABLE-Aへ戻った状態を検出
 - 緊急ミュート: VRChat OSCの`MuteSelf`を確認しながら安全にミュート／解除
 - LAN操作画面: メインPCのブラウザからミュートと状態表示を操作
-- 開始前OSC同期: `VoiceAgentOscProbe`のOFF→ON→OFF往復と初期状態を確認してからONLINEへ移行
+- 開始前OSC同期: 現在のアバターをOSCで再読み込みし、`VoiceAgentOscProbe`のOFF→ON→OFF往復と初期状態を確認してからONLINEへ移行
 - アバター状態: 汎用Intパラメーター`VoiceAgentStatus`へ0〜3を送信
 - 考え中表示: ChatGPTの読み取り専用UI Automation状態とCABLE-Bの無音判定から、同期Bool `VoiceAgentThinking`を自動制御
 - キャラクター指示: GPT Live開始後に`system_prompt.txt`を安全に送信し、必要時に再適用

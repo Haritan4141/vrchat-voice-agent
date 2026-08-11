@@ -46,6 +46,8 @@ class VoiceOscConfig:
     voice_input_mode: str = "toggle"
     mute_confirm_timeout_sec: float = 2.0
     mute_retry_count: int = 2
+    avatar_reload_timeout_sec: float = 10.0
+    avatar_reload_settle_sec: float = 1.5
 
 
 @dataclass(slots=True)

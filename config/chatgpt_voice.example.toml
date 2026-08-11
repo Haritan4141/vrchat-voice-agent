@@ -31,6 +31,9 @@ probe_parameter = "VoiceAgentOscProbe"
 voice_input_mode = "toggle"
 mute_confirm_timeout_sec = 2.0
 mute_retry_count = 2
+# 開始前同期で現在のアバターを1回だけ再読み込みし、OSCの再通知を待ちます。
+avatar_reload_timeout_sec = 10.0
+avatar_reload_settle_sec = 1.5
 
 [control]
 # LAN外には公開しないでください。初回起動時にランダムなトークンを作成します。

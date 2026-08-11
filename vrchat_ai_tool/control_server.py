@@ -65,6 +65,7 @@ h3{font-size:1rem;margin:16px 0 8px}.wide{grid-column:1/-1}
 <div class="grid"><button id="preflightButton" class="ok wide" onclick="preflightStart()">同期確認して開始</button></div>
 <dl><dt>総合</dt><dd id="preflightState">未実行</dd>
 <dt>VRChat OSC</dt><dd id="preflightOsc">—</dd>
+<dt>アバター再読込</dt><dd id="preflightReload">—</dd>
 <dt>アバター</dt><dd id="preflightAvatar">—</dd>
 <dt>専用プローブ</dt><dd id="preflightProbe">—</dd>
 <dt>往復時間</dt><dd id="preflightRtt">—</dd>
@@ -138,6 +139,7 @@ async function refresh(){if(!token())return;try{const d=await request('/api/stat
  document.getElementById('motionExpression').textContent=confirmedValue(a.expression,a.expression_target,v=>`${v} ${faceNames[v]||'—'}`);
  const p=d.preflight||{};const stateNames={not_run:'未実行',running:'確認中',ready:'READY ✓',stale:'要再確認',error:'ERROR'};document.getElementById('preflightState').textContent=`${stateNames[p.state]||p.state||'未実行'}${p.message?` — ${p.message}`:''}`;
  const osc=d.osc||{};document.getElementById('preflightOsc').textContent=p.osc_ok?`${osc.target||'—'} → ${osc.listen||'—'} ✓`:`${osc.target||'—'} → ${osc.listen||'—'}`;
+ document.getElementById('preflightReload').textContent=p.avatar_reload_ok?`確認済み ✓${p.avatar_reload_ms===null||p.avatar_reload_ms===undefined?'':` (${Number(p.avatar_reload_ms).toFixed(0)} ms)`}`:(p.state==='running'?'実行中…':'未確認');
  document.getElementById('preflightAvatar').textContent=p.avatar_id?`${p.avatar_id}${p.avatar_generation!==undefined?` / 世代${p.avatar_generation}`:''}`:(p.probe_ok?'現在のAIアバターを確認 ✓':'未確認');
  document.getElementById('preflightProbe').textContent=p.probe_ok?'OFF→ON→OFF ✓':(a.probe===null||a.probe===undefined?'未確認':`実値 ${a.probe?'ON':'OFF'}`);
  document.getElementById('preflightRtt').textContent=p.probe_rtt_ms===null||p.probe_rtt_ms===undefined?'—':`${Number(p.probe_rtt_ms).toFixed(1)} ms`;
@@ -205,6 +207,8 @@ class VoiceControlService:
             "state": "not_run",
             "message": "同期確認を実行してください",
             "osc_ok": False,
+            "avatar_reload_ok": False,
+            "avatar_reload_ms": None,
             "probe_ok": False,
             "baseline_ok": False,
             "probe_rtt_ms": None,
@@ -333,6 +337,7 @@ class VoiceControlService:
         if result.get("state") == "ready" and checked_generation != current_generation:
             result["state"] = "stale"
             result["message"] = "アバター変更後のため再確認が必要です"
+            result["avatar_reload_ok"] = False
             result["probe_ok"] = False
             result["baseline_ok"] = False
         return result
@@ -347,6 +352,8 @@ class VoiceControlService:
                     "state": "running",
                     "message": "VRChatとアバターを確認中",
                     "osc_ok": True,
+                    "avatar_reload_ok": False,
+                    "avatar_reload_ms": None,
                     "probe_ok": False,
                     "baseline_ok": False,
                     "probe_rtt_ms": None,
@@ -356,10 +363,25 @@ class VoiceControlService:
                 }
                 self.last_error = ""
 
+            avatar_reload_ms: float | None = None
             try:
                 if self.loop_guard.detector.last.triggered:
                     raise RuntimeError(
                         "ループ警報中は開始できません。原因を確認して警報をリセットしてください。"
+                    )
+                avatar_reload_ms = self.osc.reload_current_avatar()
+                reloaded_avatar = self.osc.feedback_snapshot()
+                with self._lock:
+                    self._preflight.update(
+                        {
+                            "message": "アバター再読み込み済み・OSC同期確認中",
+                            "avatar_reload_ok": True,
+                            "avatar_reload_ms": avatar_reload_ms,
+                            "avatar_id": reloaded_avatar.get("avatar_id"),
+                            "avatar_generation": int(
+                                reloaded_avatar.get("avatar_generation", 0)
+                            ),
+                        }
                     )
                 self.osc.set_status_confirmed(AgentStatus.MAINTENANCE)
                 probe_rtt_ms = self.osc.confirm_probe_roundtrip()
@@ -383,6 +405,8 @@ class VoiceControlService:
                         "state": "ready",
                         "message": "OSC同期済み・ONLINE",
                         "osc_ok": bool(avatar.get("osc_listener_running")),
+                        "avatar_reload_ok": True,
+                        "avatar_reload_ms": avatar_reload_ms,
                         "probe_ok": avatar.get("probe") is False,
                         "baseline_ok": True,
                         "probe_rtt_ms": probe_rtt_ms,
@@ -404,6 +428,8 @@ class VoiceControlService:
                         "state": "error",
                         "message": str(exc),
                         "osc_ok": bool(avatar.get("osc_listener_running")),
+                        "avatar_reload_ok": avatar_reload_ms is not None,
+                        "avatar_reload_ms": avatar_reload_ms,
                         "probe_ok": False,
                         "baseline_ok": False,
                         "probe_rtt_ms": None,

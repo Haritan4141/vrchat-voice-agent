@@ -144,12 +144,18 @@ class ControlServerTests(unittest.TestCase):
             def __init__(self) -> None:
                 self.statuses: list[int] = []
                 self.thinking: list[bool] = []
+                self.events: list[str] = []
+
+            def reload_current_avatar(self) -> float:
+                self.events.append("reload")
+                return 825.0
 
             def set_status_confirmed(self, value: object) -> None:
                 self.statuses.append(int(value))
+                self.events.append(f"status:{int(value)}")
 
-            @staticmethod
-            def confirm_probe_roundtrip() -> float:
+            def confirm_probe_roundtrip(self) -> float:
+                self.events.append("probe")
                 return 7.4
 
             def send_thinking(self, value: bool) -> None:
@@ -194,11 +200,14 @@ class ControlServerTests(unittest.TestCase):
         result = service.preflight_and_start()
 
         self.assertEqual(service.osc.statuses, [3, 1])
+        self.assertEqual(service.osc.events, ["reload", "status:3", "probe", "status:1"])
         self.assertEqual(service.osc.thinking, [False])
         self.assertTrue(service.motion.stopped)
         self.assertTrue(service.motion.enabled)
         self.assertEqual(result["state"], "ready")
         self.assertEqual(result["probe_rtt_ms"], 7.4)
+        self.assertTrue(result["avatar_reload_ok"])
+        self.assertEqual(result["avatar_reload_ms"], 825.0)
         self.assertEqual(result["avatar_generation"], 2)
         self.assertFalse(service._thinking_test_override)
 
@@ -217,6 +226,43 @@ class ControlServerTests(unittest.TestCase):
         self.assertEqual(result["state"], "stale")
         self.assertFalse(result["probe_ok"])
         self.assertFalse(result["baseline_ok"])
+
+    def test_preflight_stops_before_online_when_avatar_reload_fails(self) -> None:
+        class FailingOsc:
+            def __init__(self) -> None:
+                self.sent_statuses: list[int] = []
+
+            @staticmethod
+            def reload_current_avatar() -> float:
+                raise RuntimeError("reload unavailable")
+
+            def send_status(self, value: object) -> None:
+                self.sent_statuses.append(int(value))
+
+            @staticmethod
+            def feedback_snapshot() -> dict[str, object]:
+                return {
+                    "osc_listener_running": True,
+                    "avatar_id": None,
+                    "avatar_generation": 0,
+                }
+
+        service = object.__new__(VoiceControlService)
+        service._lock = threading.RLock()
+        service._preflight_lock = threading.Lock()
+        service._preflight = {}
+        service.last_error = ""
+        service.osc = FailingOsc()
+        service.loop_guard = SimpleNamespace(
+            detector=SimpleNamespace(last=SimpleNamespace(triggered=False))
+        )
+
+        with self.assertRaisesRegex(RuntimeError, "reload unavailable"):
+            service.preflight_and_start()
+
+        self.assertEqual(service._preflight["state"], "error")
+        self.assertFalse(service._preflight["avatar_reload_ok"])
+        self.assertEqual(service.osc.sent_statuses, [2])
 
     def test_thinking_display_test_pulses_off_before_on(self) -> None:
         class RecordingOsc:

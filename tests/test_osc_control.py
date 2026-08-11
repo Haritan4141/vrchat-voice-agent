@@ -1,6 +1,10 @@
 from __future__ import annotations
 
+import os
+import tempfile
 import unittest
+from pathlib import Path
+from unittest.mock import patch
 
 from vrchat_ai_tool.osc_control import AgentStatus, VRChatOscController
 from vrchat_ai_tool.voice_config import VoiceOscConfig
@@ -27,9 +31,71 @@ class FakeClient:
         elif address == "/avatar/parameters/VoiceAgentOscProbe":
             assert self.controller is not None
             self.controller._on_probe(address, value)
+        elif address == "/avatar/change":
+            assert self.controller is not None
+            self.controller._on_avatar_change(address, value)
 
 
 class OscControlTests(unittest.TestCase):
+    def test_current_avatar_reload_is_sent_once_and_confirmed(self) -> None:
+        fake = FakeClient()
+        controller = VRChatOscController(
+            VoiceOscConfig(avatar_reload_settle_sec=0.0),
+            client_factory=lambda _h, _p: fake,
+        )
+        fake.controller = controller
+        controller._server = object()
+        controller._on_avatar_change(
+            "/avatar/change", "avtr_12345678-1234-1234-1234-123456789abc"
+        )
+        fake.messages.clear()
+
+        elapsed_ms = controller.reload_current_avatar()
+
+        self.assertGreaterEqual(elapsed_ms, 0.0)
+        self.assertEqual(
+            fake.messages.count(
+                ("/avatar/change", "avtr_12345678-1234-1234-1234-123456789abc")
+            ),
+            1,
+        )
+        self.assertEqual(controller.feedback_snapshot()["avatar_generation"], 2)
+
+    def test_avatar_reload_fails_without_a_safe_current_id(self) -> None:
+        fake = FakeClient()
+        controller = VRChatOscController(VoiceOscConfig(), client_factory=lambda _h, _p: fake)
+        fake.controller = controller
+        controller._server = object()
+
+        with patch.object(controller, "_discover_current_avatar_id_from_log", return_value=None):
+            with self.assertRaisesRegex(RuntimeError, "avatar ID"):
+                controller.reload_current_avatar()
+
+    def test_current_avatar_id_is_discovered_from_vrchat_log_and_probe_schema(self) -> None:
+        avatar_id = "avtr_12345678-1234-1234-1234-123456789abc"
+        with tempfile.TemporaryDirectory() as directory:
+            profile = Path(directory)
+            vrchat = profile / "AppData" / "LocalLow" / "VRChat" / "VRChat"
+            vrchat.mkdir(parents=True)
+            (vrchat / "output_log_2026-08-12_00-00-00.txt").write_text(
+                f"Loading Avatar Data:{avatar_id}\n",
+                encoding="utf-8",
+            )
+            schema_dir = vrchat / "OSC" / "usr_test" / "Avatars"
+            schema_dir.mkdir(parents=True)
+            (schema_dir / f"{avatar_id}.json").write_text(
+                '{"parameters":[{"name":"VoiceAgentOscProbe"}]}',
+                encoding="utf-8",
+            )
+            controller = VRChatOscController(
+                VoiceOscConfig(), client_factory=lambda _h, _p: FakeClient()
+            )
+
+            with patch.dict(os.environ, {"USERPROFILE": directory}):
+                discovered = controller._discover_current_avatar_id_from_log()
+
+        self.assertEqual(discovered, avatar_id)
+
     def test_confirmed_mute_works_from_unknown_initial_state(self) -> None:
         fake = FakeClient()
         controller = VRChatOscController(VoiceOscConfig(), client_factory=lambda _h, _p: fake)

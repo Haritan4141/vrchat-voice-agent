@@ -1,9 +1,12 @@
 from __future__ import annotations
 
+import os
+import re
 import threading
 import time
 from collections.abc import Callable
 from enum import IntEnum
+from pathlib import Path
 
 from pythonosc.dispatcher import Dispatcher
 from pythonosc.osc_server import ThreadingOSCUDPServer
@@ -58,6 +61,7 @@ class VRChatOscController:
         self._probe_version = 0
         self._probe_feedback_at = 0.0
         self._probe_lock = threading.Lock()
+        self._avatar_reload_lock = threading.Lock()
         self._avatar_id: str | None = None
         self._last_feedback_at = 0.0
         self._avatar_replay_generation = 0
@@ -161,6 +165,7 @@ class VRChatOscController:
             self._last_feedback_at = time.monotonic()
             self._avatar_replay_generation += 1
             generation = self._avatar_replay_generation
+            self._condition.notify_all()
         threading.Thread(
             target=self._replay_after_avatar_change,
             args=(generation,),
@@ -291,6 +296,114 @@ class VRChatOscController:
                 "osc_listener_running": self._server is not None,
                 "last_feedback_age_sec": feedback_age,
             }
+
+    def reload_current_avatar(self) -> float:
+        """Reload the current avatar through /avatar/change and confirm feedback.
+
+        VRChat does not expose the Action Menu's full "Reset Avatar" operation as
+        a documented OSC input. Sending the current avatar ID to /avatar/change is
+        the closest OSC-only equivalent. The message is deliberately sent once:
+        avatar changes are not ordinary idempotent parameter updates.
+        """
+        if self._server is None:
+            raise RuntimeError("OSC listener is not running")
+
+        with self._avatar_reload_lock:
+            with self._condition:
+                avatar_id = self._avatar_id
+            if not self._is_avatar_id(avatar_id):
+                avatar_id = self._discover_current_avatar_id_from_log()
+            if not self._is_avatar_id(avatar_id):
+                raise RuntimeError(
+                    "The current VRChat avatar ID could not be determined. "
+                    "Switch to the AI avatar once, then retry the preflight check."
+                )
+
+            with self._condition:
+                before_generation = self._avatar_replay_generation
+                self._avatar_id = avatar_id
+
+            started_at = time.monotonic()
+            self._client.send_message("/avatar/change", avatar_id)
+            deadline = started_at + self.config.avatar_reload_timeout_sec
+            with self._condition:
+                while self._avatar_replay_generation == before_generation:
+                    remaining = deadline - time.monotonic()
+                    if remaining <= 0:
+                        break
+                    self._condition.wait(remaining)
+                changed = self._avatar_replay_generation != before_generation
+                confirmed_id = self._avatar_id
+
+            if not changed:
+                raise RuntimeError(
+                    "VRChat did not confirm the avatar reload. "
+                    "Check that OSC is enabled and the current avatar is available "
+                    "in Uploaded, Favorites, or Recents."
+                )
+            if confirmed_id != avatar_id:
+                raise RuntimeError(
+                    "VRChat changed to a different avatar during preflight; "
+                    "automatic start was cancelled."
+                )
+
+            time.sleep(max(0.0, self.config.avatar_reload_settle_sec))
+            return round((time.monotonic() - started_at) * 1000.0, 1)
+
+    @staticmethod
+    def _is_avatar_id(value: object) -> bool:
+        return isinstance(value, str) and re.fullmatch(
+            r"avtr_[0-9a-fA-F-]{20,}", value
+        ) is not None
+
+    def _discover_current_avatar_id_from_log(self) -> str | None:
+        profile = os.environ.get("USERPROFILE")
+        home = Path(profile) if profile else Path.home()
+        log_directory = home / "AppData" / "LocalLow" / "VRChat" / "VRChat"
+        try:
+            logs = sorted(
+                log_directory.glob("output_log_*.txt"),
+                key=lambda path: path.stat().st_mtime,
+                reverse=True,
+            )
+        except OSError:
+            return None
+
+        pattern = re.compile(rb"Loading Avatar Data:(avtr_[0-9a-fA-F-]{20,})")
+        for path in logs[:3]:
+            try:
+                with path.open("rb") as stream:
+                    stream.seek(0, 2)
+                    size = stream.tell()
+                    stream.seek(max(0, size - 4 * 1024 * 1024))
+                    matches = pattern.findall(stream.read())
+            except OSError:
+                continue
+            if matches:
+                candidate = matches[-1].decode("ascii")
+                # A log can also contain avatars seen in the instance. Only trust
+                # the latest ID when VRChat's own OSC schema confirms that it is
+                # the AI avatar containing our dedicated round-trip probe.
+                osc_root = log_directory / "OSC"
+                try:
+                    schemas = list(osc_root.glob(f"*/Avatars/{candidate}.json"))
+                    if any(
+                        self._schema_contains_probe(schema)
+                        for schema in schemas
+                    ):
+                        return candidate
+                except OSError:
+                    return None
+                return None
+        return None
+
+    def _schema_contains_probe(self, path: Path) -> bool:
+        try:
+            data = path.read_bytes()
+        except OSError:
+            return False
+        probe_name = self.config.probe_parameter.encode("utf-8")
+        return self._is_avatar_id(path.stem) and probe_name in data
 
     def send_status(self, status: AgentStatus | int) -> None:
         status = AgentStatus(int(status))
