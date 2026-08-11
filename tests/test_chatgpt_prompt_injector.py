@@ -137,6 +137,12 @@ class PromptInjectorTests(unittest.TestCase):
         self.assertIn("この音声セッション全体に適用する会話設定", prompt)
         self.assertIn("ほかのファイルや事前設定の読み込みは必要ありません", prompt)
         self.assertNotIn("AGENTS.md", prompt)
+        last_line = next(line for line in reversed(prompt.splitlines()) if line.strip())
+        self.assertEqual(
+            last_line,
+            "以上の設定を今から適用してください。このメッセージへの最初の返答は、"
+            "説明、前置き、相づち、言い換えを一切加えず、「準備できたよ」の一文だけにしてください。",
+        )
 
     def test_load_prompt_accepts_utf8_bom_without_returning_it(self) -> None:
         with tempfile.TemporaryDirectory() as temporary_directory:
