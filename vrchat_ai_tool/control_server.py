@@ -5,6 +5,7 @@ import json
 import secrets
 import socket
 import threading
+import time
 from collections.abc import Callable
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
@@ -315,8 +316,20 @@ class VoiceControlService:
                 self.last_error = ""
 
     def set_thinking_test(self, enabled: bool) -> None:
+        enabled = bool(enabled)
         with self._lock:
-            self._thinking_test_override = bool(enabled)
+            self._thinking_test_override = enabled
+        if enabled:
+            # A display test should remain visibly testable even when the previous
+            # target/feedback is already True. Pulse OFF before ON so the avatar
+            # Animator must traverse both transitions instead of receiving the same
+            # unchanged Bool again.
+            self.osc.send_thinking(False)
+            time.sleep(0.15)
+            self.osc.send_thinking(True)
+            with self._lock:
+                self._thinking_output = True
+            return
         self._update_thinking_output()
 
     def start_motion_diagnostic_test(self) -> None:

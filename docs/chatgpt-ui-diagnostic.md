@@ -15,7 +15,7 @@ ChatGPT画面に表示されている会話本文がログに含まれる可能�
 ## 5700X PCでの実行
 
 1. ChatGPTデスクトップアプリを起動します。
-2. プロジェクト直下の`run_chatgpt_ui_diagnostic.bat`を実行します。
+2. プロジェクト直下の`run_chatgpt_ui_diagnostic.bat`を実行します。バッチは背面・最小化されたChatGPTの要素も記録します。
 3. `Baseline captured`と表示されるまで待ちます。
 4. 空のChatGPTタスクでVoiceを開始します。
 5. 次の順番で試します。各操作の間を5秒ほど空けてください。

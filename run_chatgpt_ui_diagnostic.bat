@@ -5,7 +5,7 @@ call :find_uv
 if errorlevel 1 goto :missing_uv
 "%UV_EXE%" sync --quiet
 if errorlevel 1 goto :failed
-"%UV_EXE%" run chatgpt-ui-diagnostic --duration-seconds 180
+"%UV_EXE%" run chatgpt-ui-diagnostic --duration-seconds 180 --include-offscreen
 set "RESULT=%errorlevel%"
 echo.
 pause

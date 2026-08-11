@@ -8,10 +8,12 @@ import urllib.error
 import urllib.request
 from http.server import ThreadingHTTPServer
 from pathlib import Path
+from unittest.mock import patch
 
 from vrchat_ai_tool.chatgpt_ui_state import UiActivityState
 from vrchat_ai_tool.control_server import (
     CONTROL_HTML,
+    VoiceControlService,
     load_or_create_token,
     make_handler,
     should_show_thinking,
@@ -118,6 +120,28 @@ class FakeService:
 
 
 class ControlServerTests(unittest.TestCase):
+    def test_thinking_display_test_pulses_off_before_on(self) -> None:
+        class RecordingOsc:
+            def __init__(self) -> None:
+                self.values: list[bool] = []
+
+            def send_thinking(self, value: bool) -> None:
+                self.values.append(value)
+
+        service = object.__new__(VoiceControlService)
+        service._lock = threading.RLock()
+        service._thinking_test_override = False
+        service._thinking_output = False
+        service.osc = RecordingOsc()
+
+        with patch("vrchat_ai_tool.control_server.time.sleep") as sleep:
+            service.set_thinking_test(True)
+
+        self.assertEqual(service.osc.values, [False, True])
+        self.assertTrue(service._thinking_test_override)
+        self.assertTrue(service._thinking_output)
+        sleep.assert_called_once_with(0.15)
+
     def test_thinking_is_hidden_only_while_voice_is_speaking(self) -> None:
         self.assertFalse(should_show_thinking(UiActivityState.IDLE, 0))
         self.assertTrue(should_show_thinking(UiActivityState.WORKING, 0))
