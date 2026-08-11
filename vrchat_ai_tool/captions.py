@@ -123,6 +123,10 @@ class UiaCaptionExtractor:
     def reset(self) -> None:
         self.begin(None)
 
+    @property
+    def candidate_count(self) -> int:
+        return len(self._candidates)
+
     def update(self, result: UiScanResult) -> str | None:
         current_locators = set(result.elements)
         for locator in tuple(self._candidates):
@@ -220,9 +224,9 @@ class CaptionService:
         self._typing = False
         self._speaking = False
         self._last_ui_scan: UiScanResult | None = None
-        self._idle_ui_scan: UiScanResult | None = None
         self._ui_state = UiActivityState.IDLE
         self._uia = UiaCaptionExtractor()
+        self._uia_not_before = 0.0
         self._uia_grace_until = 0.0
         self._uia_candidate_count = 0
         self._stt_state = "not_loaded"
@@ -295,7 +299,9 @@ class CaptionService:
             self._last_error = ""
             self._reset_utterance_locked()
             self._uia.reset()
+            self._uia_not_before = 0.0
             self._uia_grace_until = 0.0
+            self._uia_candidate_count = 0
             self._set_typing_locked(False)
             self._output_condition.notify_all()
         if normalized == "stt":
@@ -322,14 +328,18 @@ class CaptionService:
         now = self.clock()
         with self._lock:
             self._last_ui_scan = result
-            if not self._speaking and self._ui_state == UiActivityState.IDLE:
-                self._idle_ui_scan = result
             if self._mode != "uia" or (not self._speaking and now > self._uia_grace_until):
                 return
             text = self._uia.update(result)
+            self._uia_candidate_count = self._uia.candidate_count
             if not text:
                 return
-            self._uia_candidate_count += 1
+            # A user's completed voice transcript can be exposed by UIA just
+            # before the assistant starts speaking. Keep the first changes
+            # pending so a later/lower assistant response wins the extractor's
+            # ranking instead of broadcasting the user's words.
+            if now < self._uia_not_before:
+                return
         self._publish(text, "uia")
 
     def on_ui_state(self, state: UiActivityState) -> None:
@@ -355,11 +365,16 @@ class CaptionService:
                 self._silence_ms = 0
                 self._utterance_frames = [*self._pre_roll, pcm]
                 self._pre_roll.clear()
-                # UIA can expose response text just before CABLE-B starts moving.
-                # Use the last snapshot captured while the app was idle so that
-                # early response text is still considered new.
-                self._uia.begin(self._idle_ui_scan or self._last_ui_scan)
+                # Baseline the most recent scan at the exact CABLE-B onset. The
+                # user's transcript normally appears before this point, while
+                # assistant text appears during playback. An older idle
+                # baseline cannot tell those two roles apart.
+                self._uia.begin(self._last_ui_scan)
+                self._uia_not_before = now + max(
+                    0.0, self.config.uia_initial_hold_sec
+                )
                 self._uia_grace_until = 0.0
+                self._uia_candidate_count = 0
                 if self._mode != "off":
                     self._set_typing_locked(True)
                 return
@@ -414,6 +429,8 @@ class CaptionService:
         self._utterance_frames = []
         self._pre_roll.clear()
         self._silence_ms = 0
+        self._uia_not_before = 0.0
+        self._uia_candidate_count = 0
 
     def _set_typing_locked(self, typing: bool) -> None:
         typing = bool(typing)

@@ -116,6 +116,9 @@ class VoiceCaptionConfig:
     prefix: str = "AI: "
     max_chars: int = 144
     min_send_interval_sec: float = 1.5
+    # Keep early UI changes pending long enough for the assistant response to
+    # appear below the user's just-finished voice transcript.
+    uia_initial_hold_sec: float = 1.0
     uia_post_speech_grace_sec: float = 2.5
     stt_model: str = "small"
     stt_device: str = "cpu"

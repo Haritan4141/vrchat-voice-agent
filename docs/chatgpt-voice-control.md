@@ -6,7 +6,7 @@
 
 ```powershell
 Copy-Item config/chatgpt_voice.example.toml config/chatgpt_voice.toml
-uv sync --extra stt
+uv sync
 ```
 
 VRChatのAction MenuでOSCを有効にしてください。標準ポートのままなら、このツールはVRChatへUDP 9000で送信し、UDP 9001で状態を受信します。
@@ -40,7 +40,7 @@ uv run chatgpt-voice-doctor --config config/chatgpt_voice.toml --live-seconds 8
 コマンドから直接起動する場合は次を実行します。
 
 ```powershell
-uv run --extra stt vrchat-voice-control --config config/chatgpt_voice.toml
+uv run vrchat-voice-control --config config/chatgpt_voice.toml
 ```
 
 本番用プロセスにはChatGPT画面状態監視が内蔵されています。`run_chatgpt_ui_diagnostic.bat`はUI変化をJSONLへ記録する3分間の調査専用ツールであり、本番運用中に併用する必要はありません。
@@ -262,7 +262,7 @@ LAN操作GUIの`AI発話字幕（VRChatチャットボックス）`から、次�
 
 どちらもVRChatの標準OSC `/chatbox/input`へ最大144文字で送ります。長い回答は先頭へ`…`を付けて最新側を表示し、初期設定では`AI: `を付けます。`/chatbox/typing`もAI発話中だけONになります。チャットボックス表示はアバター改変を使わないため、この機能だけのための再アップロードは不要です。
 
-UIAは高速で音声認識誤りがありませんが、ChatGPTアプリ更新後にアクセシビリティ構造が変わると抽出できない場合があります。履歴本文を誤送信しないよう、回答開始前のUIを基準に新規・更新テキストだけを候補にします。GUIの`最新字幕`と`エラー`を見ながら実機で確認してください。
+UIAは高速で音声認識誤りがありませんが、ChatGPTアプリ更新後にアクセシビリティ構造が変わると抽出できない場合があります。履歴本文や利用者側の発言を誤送信しないよう、CABLE-BでAI音声を検出した瞬間のUIを基準にし、直後の候補を短時間保留してから新しい回答だけを送ります。GUIの`最新字幕`と`エラー`を見ながら実機で確認してください。画面構造に左右されない安定性を優先する場合はSTTを使用してください。
 
 STTは画面構造に依存しません。初めてSTTへ切り替えたときだけ`small`モデルを取得して読み込むため、`字幕STT`が`loading`から`ready`になるまで待ちます。既定はCPU用`int8`です。音声は発話単位の一時WAVへ変換して文字起こし後すぐ削除し、会話ログとして保存しません。OpenAI API、Ollama、VOICEVOX、旧ローカル応答ランタイムは起動しません。
 
@@ -272,6 +272,7 @@ mode = "off"
 prefix = "AI: "
 max_chars = 144
 min_send_interval_sec = 1.5
+uia_initial_hold_sec = 1.0
 stt_model = "small"
 stt_device = "cpu"
 stt_compute_type = "int8"

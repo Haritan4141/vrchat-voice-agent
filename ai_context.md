@@ -478,9 +478,22 @@ uvx ruff check vrchat_ai_tool/chatgpt_ui_state.py `
 
 - VRChat標準OSCチャットボックスへAI発話を表示する実験機能を追加。
 - GUIから`OFF / UIA / STT`を切り替え、選択を`[captions].mode`へ保存する。
-- UIA方式は既存のChatGPT画面スキャンを共有し、発話開始前の待機スナップショットとの差分だけを候補にする。
+- UIA方式は既存のChatGPT画面スキャンを共有し、CABLE-B発話開始時点のスナップショットとの差分だけを候補にする。
 - STT方式は自己ループ監視が取得済みのCABLE-B PCMを字幕専用faster-whisperワーカーへ分岐する。Ollama、VOICEVOX、OpenAI APIは使わない。
 - VRChatへは`/chatbox/input`（最大144文字）と`/chatbox/typing`を送る。アバター変更や再アップロードは不要。
-- 本番用`launch_voice_control.bat`は`uv sync --extra stt`で字幕STT依存関係も準備する。STT初回選択時は`small`モデル取得後、GUIの状態が`ready`になるまで待つ。
+- 本番用`launch_voice_control.bat`は通常の`uv sync`で字幕STT依存関係も準備する。STT初回選択時は`small`モデル取得後、GUIの状態が`ready`になるまで待つ。
 - 音声はメモリと文字起こし用一時WAVだけで扱い、一時WAVは処理後削除する。
 - ユーザー所有の`5700X_PC/`と`config/settings.toml`は変更・コミットしない。
+
+## 16. 2026-08-12 字幕初回実機テストの修正
+
+- 5700X実機でUIAが利用者側の発言も字幕にし、STTは`faster-whisper is not installed`
+  となる問題を確認した。
+- UIAは待機時の古いスナップショットではなく、CABLE-BでAI音声を検出した瞬間の
+  最新スナップショットを基準にする。音声開始直後の候補は既定1秒保留し、後から
+  現れる最新回答を優先する。これにより、音声開始前に表示済みの利用者発言を除外する。
+- `uia_initial_hold_sec = 1.0`を字幕設定へ追加。既存の実機設定に項目がなくても既定値が効く。
+- `faster-whisper`を追加依存から通常の本番依存へ変更。`launch_voice_control.bat`は
+  通常の`uv sync`と`uv run vrchat-voice-control`だけでSTTまで準備する。
+- ローカルで`faster_whisper`のimport、117件のユニットテスト、対象Ruff検査が成功。
+- ユーザー所有の`5700X_PC/`と`config/settings.toml`は引き続き変更・コミットしない。

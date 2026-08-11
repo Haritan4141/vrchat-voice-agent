@@ -97,6 +97,8 @@ mode = "off"
 prefix = "AI: "
 max_chars = 144
 min_send_interval_sec = 1.5
+# AI音声を検出した直後の入力側テキストを字幕にしないため、UIA候補を一時保留します。
+uia_initial_hold_sec = 1.0
 uia_post_speech_grace_sec = 2.5
 # STTはOpenAI APIを使いません。初回だけfaster-whisperモデルを取得します。
 stt_model = "small"

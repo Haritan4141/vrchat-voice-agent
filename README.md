@@ -32,7 +32,7 @@ ChatGPT Voice出力
 
 ```powershell
 Copy-Item config/chatgpt_voice.example.toml config/chatgpt_voice.toml
-uv sync --extra stt
+uv sync
 uv run chatgpt-voice-doctor --config config/chatgpt_voice.toml
 ```
 
@@ -51,7 +51,7 @@ uv run chatgpt-voice-doctor --config config/chatgpt_voice.toml --live-seconds 8
 コマンドから直接起動する場合:
 
 ```powershell
-uv run --extra stt vrchat-voice-control --config config/chatgpt_voice.toml
+uv run vrchat-voice-control --config config/chatgpt_voice.toml
 ```
 
 終了する場合は、サブPC側のコンソールで`Ctrl+C`を押します。`run_chatgpt_ui_diagnostic.bat`は3分間の調査ログを取得する診断専用であり、本番運用では起動不要です。

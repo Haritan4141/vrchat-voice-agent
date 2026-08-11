@@ -31,12 +31,16 @@ class BatchLauncherTests(unittest.TestCase):
         )
         self.assertIn('call "%~dp0..\\launch_voice_control.bat"', content)
 
-    def test_control_launcher_installs_caption_stt_extra(self) -> None:
+    def test_control_launcher_installs_production_dependencies(self) -> None:
         content = (self.repository_root / "launch_voice_control.bat").read_text(
             encoding="ascii"
         )
-        self.assertIn("sync --extra stt --quiet", content)
-        self.assertIn("run --extra stt vrchat-voice-control", content)
+        self.assertIn("sync --quiet", content)
+        self.assertIn("run vrchat-voice-control", content)
+        self.assertNotIn("--extra", content)
+
+        project = (self.repository_root / "pyproject.toml").read_text(encoding="utf-8")
+        self.assertIn('"faster-whisper>=1.2,<2",', project)
 
 
 if __name__ == "__main__":

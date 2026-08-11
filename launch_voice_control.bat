@@ -4,9 +4,9 @@ cd /d "%~dp0"
 call :find_uv
 if errorlevel 1 goto :missing_uv
 if not exist "config\chatgpt_voice.toml" copy "config\chatgpt_voice.example.toml" "config\chatgpt_voice.toml" >nul
-"%UV_EXE%" sync --extra stt --quiet
+"%UV_EXE%" sync --quiet
 if errorlevel 1 goto :failed
-"%UV_EXE%" run --extra stt vrchat-voice-control --config config\chatgpt_voice.toml
+"%UV_EXE%" run vrchat-voice-control --config config\chatgpt_voice.toml
 set "RESULT=%errorlevel%"
 echo.
 pause

@@ -7,6 +7,7 @@ from pathlib import Path
 
 from vrchat_ai_tool.captions import CaptionService, UiaCaptionExtractor, format_chatbox_text
 from vrchat_ai_tool.chatgpt_ui_diagnostic import UiElementRecord, UiScanResult
+from vrchat_ai_tool.chatgpt_ui_state import UiActivityState
 from vrchat_ai_tool.voice_config import VoiceCaptionConfig
 
 
@@ -89,6 +90,75 @@ class CaptionTests(unittest.TestCase):
             extractor.update(scan(text_record("answer", "こんにちは", 500))),
             "こんにちは",
         )
+
+    def test_uia_service_baselines_user_text_at_audio_onset(self) -> None:
+        now = [10.0]
+        osc = FakeOsc()
+        service = CaptionService(
+            VoiceCaptionConfig(
+                mode="uia",
+                min_send_interval_sec=0.0,
+                uia_initial_hold_sec=1.0,
+                stt_speech_on_rms=10.0,
+            ),
+            osc,
+            sample_rate=1000,
+            channels=1,
+            clock=lambda: now[0],
+        )
+        service.start()
+        try:
+            history = text_record("old", "以前の回答", 100)
+            user = text_record("user", "こちらは利用者の発言です", 400)
+            service.on_ui_state(UiActivityState.WORKING)
+            service.on_ui_scan(scan(history, user))
+            service.on_audio_chunk(b"\x01\x00" * 100, 20.0)
+
+            # The input-side transcript was present at CABLE-B onset and must
+            # never become an AI caption.
+            now[0] = 10.5
+            service.on_ui_scan(scan(history, user))
+            self.assertEqual(osc.chatbox, [])
+
+            answer = text_record("answer", "AI側の回答です", 500)
+            now[0] = 11.2
+            service.on_ui_scan(scan(history, user, answer))
+            self.assertTrue(osc.sent.wait(1.0))
+            self.assertEqual(osc.chatbox[-1], "AI: AI側の回答です")
+        finally:
+            service.stop()
+
+    def test_uia_service_holds_first_post_onset_candidate(self) -> None:
+        now = [20.0]
+        osc = FakeOsc()
+        service = CaptionService(
+            VoiceCaptionConfig(
+                mode="uia",
+                min_send_interval_sec=0.0,
+                uia_initial_hold_sec=1.0,
+                stt_speech_on_rms=10.0,
+            ),
+            osc,
+            sample_rate=1000,
+            channels=1,
+            clock=lambda: now[0],
+        )
+        service.start()
+        try:
+            service.on_ui_scan(scan(text_record("old", "以前の回答", 100)))
+            service.on_audio_chunk(b"\x01\x00" * 100, 20.0)
+            user = text_record("user", "遅れて出た利用者の発言", 400)
+            now[0] = 20.2
+            service.on_ui_scan(scan(user))
+            self.assertEqual(osc.chatbox, [])
+
+            answer = text_record("answer", "こちらがAIの回答", 500)
+            now[0] = 21.1
+            service.on_ui_scan(scan(user, answer))
+            self.assertTrue(osc.sent.wait(1.0))
+            self.assertEqual(osc.chatbox[-1], "AI: こちらがAIの回答")
+        finally:
+            service.stop()
 
     def test_stt_segments_cable_b_and_sends_local_transcript(self) -> None:
         osc = FakeOsc()
