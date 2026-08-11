@@ -5,11 +5,14 @@ import unittest
 from contextlib import redirect_stdout
 from io import StringIO
 from pathlib import Path
+from types import SimpleNamespace
+from unittest.mock import Mock
 
 from vrchat_ai_tool.chatgpt_prompt_injector import (
     ComposerNotReady,
     PromptInjectionError,
     VoiceStartNotReady,
+    WindowsPromptSender,
     find_new_chat_target,
     find_prompt_target,
     find_voice_start_target,
@@ -85,6 +88,29 @@ class FakeClicker:
 
 
 class PromptInjectorTests(unittest.TestCase):
+    def test_clipboard_restore_failure_clears_prompt_without_raising(self) -> None:
+        sender = WindowsPromptSender()
+        pythoncom = SimpleNamespace(
+            OleSetClipboard=Mock(side_effect=RuntimeError("restore failed")),
+            OleFlushClipboard=Mock(),
+        )
+        win32clipboard = SimpleNamespace(
+            OpenClipboard=Mock(),
+            EmptyClipboard=Mock(),
+            CloseClipboard=Mock(),
+        )
+
+        restored = sender._restore_or_clear_clipboard(
+            pythoncom,
+            win32clipboard,
+            object(),
+            True,
+        )
+
+        self.assertFalse(restored)
+        win32clipboard.EmptyClipboard.assert_called_once_with()
+        win32clipboard.CloseClipboard.assert_called_once_with()
+
     def test_batch_launcher_is_ascii_compatible(self) -> None:
         repository_root = Path(__file__).resolve().parents[1]
 
