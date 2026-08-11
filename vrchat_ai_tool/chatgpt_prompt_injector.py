@@ -250,6 +250,31 @@ def require_codex_mode(result: UiScanResult) -> None:
     )
 
 
+def wait_for_codex_mode(
+    provider: SnapshotProvider,
+    *,
+    wait_seconds: float,
+    clock: Callable[[], float] = time.monotonic,
+    sleep: Callable[[float], None] = time.sleep,
+) -> None:
+    """Wait for a complete UIA scan that proves the app is in Codex mode."""
+    if wait_seconds < 0:
+        raise PromptInjectionError("wait_seconds must be zero or greater.")
+    deadline = clock() + wait_seconds
+    last_error: PromptInjectionError | None = None
+    while True:
+        try:
+            require_codex_mode(provider.scan())
+            return
+        except (ComposerNotReady, CodexModeNotReady) as exc:
+            last_error = exc
+        now = clock()
+        if now >= deadline:
+            assert last_error is not None
+            raise last_error
+        sleep(min(0.5, deadline - now))
+
+
 def _is_near_composer(
     button_rectangle: tuple[int, int, int, int],
     composer_rectangle: tuple[int, int, int, int],
@@ -607,7 +632,13 @@ def run_prompt_injector(
     if start_voice:
         if require_codex:
             print("Checking for Codex mode...")
-            require_codex_mode(scanner.scan())
+            wait_for_codex_mode(
+                scanner,
+                wait_seconds=wait_seconds,
+                clock=clock,
+                sleep=sleep,
+            )
+            print("Codex mode detected.")
         print("Looking for the New chat button...")
         new_chat_target = _wait_for_ui_target(
             scanner,

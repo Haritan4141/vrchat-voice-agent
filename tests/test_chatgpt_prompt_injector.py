@@ -21,6 +21,7 @@ from vrchat_ai_tool.chatgpt_prompt_injector import (
     parse_rectangle,
     require_codex_mode,
     run_prompt_injector,
+    wait_for_codex_mode,
     wait_for_prompt_target,
     wait_for_voice_ready_after_click,
 )
@@ -276,6 +277,44 @@ class PromptInjectorTests(unittest.TestCase):
                         rectangle="10,10,100,40",
                     ),
                 )
+            )
+
+    def test_wait_for_codex_mode_retries_incomplete_uia_scan(self) -> None:
+        composer = record("composer", rectangle="300,200,800,260")
+        codex = record(
+            "codex-mode",
+            control_type="Text",
+            name="Codex",
+            class_name="product-switcher",
+            rectangle="10,10,100,40",
+        )
+        provider = FakeProvider(
+            [
+                result(composer),
+                result(composer, codex),
+            ]
+        )
+        now = [0.0]
+
+        wait_for_codex_mode(
+            provider,
+            wait_seconds=2.0,
+            clock=lambda: now[0],
+            sleep=lambda seconds: now.__setitem__(0, now[0] + seconds),
+        )
+
+        self.assertEqual(provider.calls, 2)
+
+    def test_wait_for_codex_mode_preserves_timeout_error(self) -> None:
+        provider = FakeProvider([result(record("composer"))])
+        now = [0.0]
+
+        with self.assertRaises(CodexModeNotReady):
+            wait_for_codex_mode(
+                provider,
+                wait_seconds=1.0,
+                clock=lambda: now[0],
+                sleep=lambda seconds: now.__setitem__(0, now[0] + seconds),
             )
 
     def test_find_voice_start_ignores_dictation_and_busy_actions(self) -> None:
