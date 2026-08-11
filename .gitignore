@@ -12,7 +12,6 @@ __pycache__/
 
 .env
 .env.*
-system_prompt.txt
 config/chatgpt_voice.toml
 config/control-token.txt
 

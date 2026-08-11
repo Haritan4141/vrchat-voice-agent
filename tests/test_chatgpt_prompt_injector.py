@@ -73,6 +73,14 @@ class FakeSender:
 
 
 class PromptInjectorTests(unittest.TestCase):
+    def test_batch_launcher_is_ascii_compatible(self) -> None:
+        repository_root = Path(__file__).resolve().parents[1]
+
+        batch = (repository_root / "apply_voice_prompt.bat").read_bytes()
+
+        self.assertTrue(batch)
+        batch.decode("ascii")
+
     def test_load_prompt_accepts_utf8_bom_without_returning_it(self) -> None:
         with tempfile.TemporaryDirectory() as temporary_directory:
             path = Path(temporary_directory) / "system_prompt.txt"
