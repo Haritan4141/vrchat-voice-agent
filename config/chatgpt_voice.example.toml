@@ -26,6 +26,7 @@ motion_energy_parameter = "VoiceAgentEnergy"
 motion_gesture_parameter = "VoiceAgentGesture"
 motion_expression_parameter = "VoiceAgentExpression"
 thinking_parameter = "VoiceAgentThinking"
+probe_parameter = "VoiceAgentOscProbe"
 # VRChatの「マイクの動作」を切り替え（トグル）に合わせます。
 voice_input_mode = "toggle"
 mute_confirm_timeout_sec = 2.0

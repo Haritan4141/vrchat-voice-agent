@@ -334,6 +334,25 @@ def build_doctor_report(
             VoiceCheck(CheckLevel.OK, "osc.status_parameter", "アバター状態パラメーター", "VoiceAgentStatus")
         )
 
+    if config.osc.probe_parameter != "VoiceAgentOscProbe":
+        checks.append(
+            VoiceCheck(
+                CheckLevel.WARN,
+                "osc.probe_parameter",
+                "OSC同期確認パラメーター",
+                f"現在: {config.osc.probe_parameter} / 推奨: VoiceAgentOscProbe",
+            )
+        )
+    else:
+        checks.append(
+            VoiceCheck(
+                CheckLevel.OK,
+                "osc.probe_parameter",
+                "OSC同期確認パラメーター",
+                "VoiceAgentOscProbe",
+            )
+        )
+
     levels = sample_live_levels(config, live_seconds) if live_seconds > 0 else {}
     return DoctorReport(checks=checks, live_levels=levels)
 

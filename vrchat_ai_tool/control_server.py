@@ -33,7 +33,7 @@ body{max-width:760px;margin:0 auto;padding:24px}h1{font-size:1.35rem;margin:0 0 
 .card{background:#101d2a;border:1px solid #24445c;border-radius:14px;padding:16px;margin:12px 0}
 .grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(140px,1fr));gap:10px}
 button,input{font:inherit;border-radius:9px;padding:11px;border:1px solid #3a617c}
-button{cursor:pointer;background:#173149;color:#fff}button:hover{background:#214763}
+button{cursor:pointer;background:#173149;color:#fff}button:hover{background:#214763}button:disabled{cursor:wait;opacity:.65}
 .danger{background:#6f1e2a}.ok{background:#12613d}.warn{background:#765b13}
 input{box-sizing:border-box;width:100%;background:#07121d;color:#fff}.row{display:flex;gap:10px}
 .row input{flex:1}.pill{display:inline-block;border-radius:999px;padding:4px 10px;background:#20364a}
@@ -57,6 +57,19 @@ h3{font-size:1rem;margin:16px 0 8px}.wide{grid-column:1/-1}
 <button class="ok" onclick="post('/api/mic/unmute')">ミュート解除</button>
 <button class="warn" onclick="post('/api/loop/reset')">ループ警報リセット</button></div>
 <small>ループ警報中は、先に警報をリセットしないとミュート解除できません。</small></div>
+<div class="card"><h2>アバター状態表示</h2><div class="grid">
+<button onclick="setStatus(0)">0 STOPPED</button><button class="ok" onclick="setStatus(1)">1 ONLINE</button>
+<button class="danger" onclick="setStatus(2)">2 ERROR</button><button class="warn" onclick="setStatus(3)">3 MAINTENANCE</button>
+</div></div>
+<div class="card"><h2>開始前OSC同期</h2>
+<div class="grid"><button id="preflightButton" class="ok wide" onclick="preflightStart()">同期確認して開始</button></div>
+<dl><dt>総合</dt><dd id="preflightState">未実行</dd>
+<dt>VRChat OSC</dt><dd id="preflightOsc">—</dd>
+<dt>アバター</dt><dd id="preflightAvatar">—</dd>
+<dt>専用プローブ</dt><dd id="preflightProbe">—</dd>
+<dt>往復時間</dt><dd id="preflightRtt">—</dd>
+<dt>初期状態</dt><dd id="preflightBaseline">—</dd></dl>
+<small>同期中はMAINTENANCE、成功後はONLINEになります。マイクのミュート状態は安全のため自動変更しません。アバターを変更した場合は再確認してください。</small></div>
 <div class="card"><h2>自己ループ対策</h2><div class="grid">
 <button class="ok" onclick="setLoopGuard(true)">監視を有効化</button>
 <button class="danger" onclick="setLoopGuard(false)">監視を無効化</button></div>
@@ -96,10 +109,6 @@ h3{font-size:1rem;margin:16px 0 8px}.wide{grid-column:1/-1}
 <button onclick="diagnosticExpression(5)">5 Gun</button>
 <button onclick="diagnosticExpression(6)">6 ThumbsUp</button></div>
 <small>診断中はCABLE-Bによる自動判定を一時停止します。全動作テストは9アクセントを5秒ずつ再生し、その間に全7表情も切り替えます。個別の表情と状態は診断終了まで保持され、表情を選ぶと発話中へ切り替わります。</small></div>
-<div class="card"><h2>アバター状態表示</h2><div class="grid">
-<button onclick="setStatus(0)">0 STOPPED</button><button class="ok" onclick="setStatus(1)">1 ONLINE</button>
-<button class="danger" onclick="setStatus(2)">2 ERROR</button><button class="warn" onclick="setStatus(3)">3 MAINTENANCE</button>
-</div></div>
 <script>
 const names=['STOPPED','ONLINE','ERROR','MAINTENANCE'];
 const activityNames=['待機中','発話中','収束中'];
@@ -114,6 +123,7 @@ async function request(path,opts={}){opts.headers={...(opts.headers||{}),Authori
 async function post(path,body={}){try{const d=await request(path,{method:'POST',body:JSON.stringify(body)}); message(d.message||'OK');refresh()}catch(e){message(e.message,true)}}
 function setStatus(value){post('/api/status',{value})} function setLoopGuard(enabled){post('/api/loop/enabled',{enabled})} function setMotion(enabled){post('/api/motion/enabled',{enabled})} function setUiMonitor(enabled){post('/api/ui-monitor/enabled',{enabled})} function setThinkingTest(enabled){post('/api/thinking/test',{enabled})}
 function diagnosticActivity(value){post('/api/motion/diagnostic/activity',{value})} function diagnosticGesture(value){post('/api/motion/diagnostic/gesture',{value})} function diagnosticExpression(value){post('/api/motion/diagnostic/expression',{value})}
+async function preflightStart(){const button=document.getElementById('preflightButton');button.disabled=true;message('OSC同期を確認しています…');try{const d=await request('/api/preflight/start',{method:'POST',body:'{}'});message(d.message||'同期確認が完了しました');await refresh()}catch(e){message(e.message,true);await refresh()}finally{button.disabled=false}}
 function message(value,error=false){const e=document.getElementById('message');e.textContent=value;e.style.color=error?'#ff9cab':'#9dd9ff'}
 function confirmedValue(actual,target,labeler){if(actual===null||actual===undefined)return `未確認（送信目標: ${labeler(target)}）`;if(actual!==target)return `${labeler(actual)} / 未反映→ ${labeler(target)}`;return `${labeler(actual)} ✓`}
 async function refresh(){if(!token())return;try{const d=await request('/api/status');const a=d.avatar||{};document.getElementById('agentStatus').textContent=confirmedValue(a.status,a.status_target,v=>`${v} ${names[v]||'—'}`);
@@ -125,7 +135,13 @@ async function refresh(){if(!token())return;try{const d=await request('/api/stat
  const enabled=confirmedValue(a.motion_enabled,a.motion_enabled_target,v=>v?'ON':'OFF');const activity=confirmedValue(a.activity,a.activity_target,v=>activityNames[v]||String(v));document.getElementById('motion').textContent=`${activity}${d.motion.diagnostic_running?` / TEST: ${d.motion.diagnostic_label||'手動確認'}`:''} / ${enabled}`;
  const actualEnergy=a.energy===null||a.energy===undefined?'未確認':Number(a.energy).toFixed(2);document.getElementById('motionLevel').textContent=`RMS ${d.motion.input_rms} / ENERGY ${d.motion.energy}（VRChat ${actualEnergy}）`;
  document.getElementById('motionGesture').textContent=confirmedValue(a.gesture,a.gesture_target,v=>`${v} ${gestureNames[v]||'—'}`);
- document.getElementById('motionExpression').textContent=confirmedValue(a.expression,a.expression_target,v=>`${v} ${faceNames[v]||'—'}`);if(d.last_error)message(d.last_error,true)}catch(e){message(e.message,true)}}
+ document.getElementById('motionExpression').textContent=confirmedValue(a.expression,a.expression_target,v=>`${v} ${faceNames[v]||'—'}`);
+ const p=d.preflight||{};const stateNames={not_run:'未実行',running:'確認中',ready:'READY ✓',stale:'要再確認',error:'ERROR'};document.getElementById('preflightState').textContent=`${stateNames[p.state]||p.state||'未実行'}${p.message?` — ${p.message}`:''}`;
+ const osc=d.osc||{};document.getElementById('preflightOsc').textContent=p.osc_ok?`${osc.target||'—'} → ${osc.listen||'—'} ✓`:`${osc.target||'—'} → ${osc.listen||'—'}`;
+ document.getElementById('preflightAvatar').textContent=p.avatar_id?`${p.avatar_id}${p.avatar_generation!==undefined?` / 世代${p.avatar_generation}`:''}`:(p.probe_ok?'現在のAIアバターを確認 ✓':'未確認');
+ document.getElementById('preflightProbe').textContent=p.probe_ok?'OFF→ON→OFF ✓':(a.probe===null||a.probe===undefined?'未確認':`実値 ${a.probe?'ON':'OFF'}`);
+ document.getElementById('preflightRtt').textContent=p.probe_rtt_ms===null||p.probe_rtt_ms===undefined?'—':`${Number(p.probe_rtt_ms).toFixed(1)} ms`;
+ document.getElementById('preflightBaseline').textContent=p.baseline_ok?'安全な初期値を再送済み ✓':'未確認';if(d.last_error)message(d.last_error,true)}catch(e){message(e.message,true)}}
 document.getElementById('token').value=token();if(token()){refresh();timer=setInterval(refresh,1500)}
 </script></body></html>"""
 
@@ -154,6 +170,9 @@ def should_show_thinking(
     )
 
 
+THINKING_REASSERT_SEC = 1.0
+
+
 class VoiceControlService:
     def __init__(self, config: ChatGPTVoiceConfig) -> None:
         self.config = config
@@ -162,6 +181,11 @@ class VoiceControlService:
         self._ui_state = UiActivityState.IDLE
         self._thinking_output = False
         self._thinking_test_override = False
+        # UI Automation and audio-level callbacks run on different threads. Keep
+        # the complete decide/send/update sequence ordered so an older ON packet
+        # cannot overtake a newer speech-suppression OFF packet.
+        self._thinking_output_lock = threading.RLock()
+        self._thinking_last_sent_at = 0.0
         self.ui_monitor = ChatGptUiStateMonitor(
             config.ui_monitor,
             self._on_ui_state,
@@ -176,6 +200,18 @@ class VoiceControlService:
             on_cable_b_level_error=self._on_motion_error,
         )
         self._lock = threading.RLock()
+        self._preflight_lock = threading.Lock()
+        self._preflight: dict[str, object] = {
+            "state": "not_run",
+            "message": "同期確認を実行してください",
+            "osc_ok": False,
+            "probe_ok": False,
+            "baseline_ok": False,
+            "probe_rtt_ms": None,
+            "avatar_id": None,
+            "avatar_generation": 0,
+            "completed_at": None,
+        }
         self.last_error = ""
 
     def start(self) -> None:
@@ -237,17 +273,29 @@ class VoiceControlService:
         self.motion.on_audio_level(rms)
         self._update_thinking_output()
 
-    def _update_thinking_output(self) -> None:
-        activity = int(self.motion.snapshot()["activity"])
-        with self._lock:
-            visible = self._thinking_test_override or should_show_thinking(
-                self._ui_state,
-                activity,
-            )
-            if visible == self._thinking_output:
-                return
-            self._thinking_output = visible
-        self.osc.send_thinking(visible)
+    def _update_thinking_output(self, *, force: bool = False) -> None:
+        with self._thinking_output_lock:
+            activity = int(self.motion.snapshot()["activity"])
+            now = time.monotonic()
+            with self._lock:
+                visible = self._thinking_test_override or should_show_thinking(
+                    self._ui_state,
+                    activity,
+                )
+                unchanged_and_recent = (
+                    visible == self._thinking_output
+                    and now - self._thinking_last_sent_at < THINKING_REASSERT_SEC
+                )
+                if not force and unchanged_and_recent:
+                    return
+
+            # UDP delivery and VRChat parameter propagation are best effort. A
+            # one-second reassertion keeps the visible avatar state converged even
+            # if one packet is lost, without producing meaningful traffic.
+            self.osc.send_thinking(visible)
+            with self._lock:
+                self._thinking_output = visible
+                self._thinking_last_sent_at = now
 
     def _on_ui_monitor_error(self, detail: str) -> None:
         with self._lock:
@@ -257,6 +305,7 @@ class VoiceControlService:
         with self._lock:
             motion = self.motion.snapshot()
             ui_monitor = self.ui_monitor.snapshot()
+            avatar = self.osc.feedback_snapshot()
             ui_monitor["suppressed_by_speech"] = (
                 ui_monitor["thinking"]
                 and int(motion["activity"]) == int(MotionActivity.SPEAKING)
@@ -264,13 +313,108 @@ class VoiceControlService:
             ui_monitor["test_override"] = self._thinking_test_override
             return {
                 "status": int(self.osc.status),
-                "avatar": self.osc.feedback_snapshot(),
+                "avatar": avatar,
                 "muted": self.osc.mute_state,
                 "loop": self.loop_guard.snapshot(),
                 "motion": motion,
                 "ui_monitor": ui_monitor,
+                "osc": {
+                    "target": f"{self.config.osc.target_host}:{self.config.osc.input_port}",
+                    "listen": f"{self.config.osc.listen_host}:{self.config.osc.output_port}",
+                },
+                "preflight": self._preflight_snapshot(avatar),
                 "last_error": self.last_error,
             }
+
+    def _preflight_snapshot(self, avatar: dict[str, object]) -> dict[str, object]:
+        result = dict(self._preflight)
+        checked_generation = int(result.get("avatar_generation", 0))
+        current_generation = int(avatar.get("avatar_generation", 0))
+        if result.get("state") == "ready" and checked_generation != current_generation:
+            result["state"] = "stale"
+            result["message"] = "アバター変更後のため再確認が必要です"
+            result["probe_ok"] = False
+            result["baseline_ok"] = False
+        return result
+
+    def preflight_and_start(self) -> dict[str, object]:
+        """Confirm OSC/avatar round-trip, restore safe values, then enter ONLINE."""
+        if not self._preflight_lock.acquire(blocking=False):
+            raise RuntimeError("OSC同期確認はすでに実行中です")
+        try:
+            with self._lock:
+                self._preflight = {
+                    "state": "running",
+                    "message": "VRChatとアバターを確認中",
+                    "osc_ok": True,
+                    "probe_ok": False,
+                    "baseline_ok": False,
+                    "probe_rtt_ms": None,
+                    "avatar_id": None,
+                    "avatar_generation": 0,
+                    "completed_at": None,
+                }
+                self.last_error = ""
+
+            try:
+                if self.loop_guard.detector.last.triggered:
+                    raise RuntimeError(
+                        "ループ警報中は開始できません。原因を確認して警報をリセットしてください。"
+                    )
+                self.osc.set_status_confirmed(AgentStatus.MAINTENANCE)
+                probe_rtt_ms = self.osc.confirm_probe_roundtrip()
+
+                # Clear manual diagnostics and stale transient values before the
+                # agent is advertised as ONLINE. Muting is deliberately untouched.
+                self.motion.stop_diagnostic_test()
+                self.motion.set_enabled(self.config.motion.enabled)
+                with self._thinking_output_lock:
+                    with self._lock:
+                        self._thinking_test_override = False
+                    self.osc.send_thinking(False)
+                    with self._lock:
+                        self._thinking_output = False
+                        self._thinking_last_sent_at = time.monotonic()
+
+                self.osc.set_status_confirmed(AgentStatus.ONLINE)
+                avatar = self.osc.feedback_snapshot()
+                with self._lock:
+                    self._preflight = {
+                        "state": "ready",
+                        "message": "OSC同期済み・ONLINE",
+                        "osc_ok": bool(avatar.get("osc_listener_running")),
+                        "probe_ok": avatar.get("probe") is False,
+                        "baseline_ok": True,
+                        "probe_rtt_ms": probe_rtt_ms,
+                        "avatar_id": avatar.get("avatar_id"),
+                        "avatar_generation": int(avatar.get("avatar_generation", 0)),
+                        "completed_at": time.strftime("%Y-%m-%d %H:%M:%S"),
+                    }
+                    self.last_error = ""
+                return dict(self._preflight)
+            except Exception as exc:
+                detail = f"OSC同期確認に失敗しました: {exc}"
+                try:
+                    self.osc.send_status(AgentStatus.ERROR)
+                except Exception:  # noqa: BLE001, S110 - preserve the primary error
+                    pass
+                avatar = self.osc.feedback_snapshot()
+                with self._lock:
+                    self._preflight = {
+                        "state": "error",
+                        "message": str(exc),
+                        "osc_ok": bool(avatar.get("osc_listener_running")),
+                        "probe_ok": False,
+                        "baseline_ok": False,
+                        "probe_rtt_ms": None,
+                        "avatar_id": avatar.get("avatar_id"),
+                        "avatar_generation": int(avatar.get("avatar_generation", 0)),
+                        "completed_at": time.strftime("%Y-%m-%d %H:%M:%S"),
+                    }
+                    self.last_error = detail
+                raise RuntimeError(detail) from exc
+        finally:
+            self._preflight_lock.release()
 
     def mute(self) -> None:
         self.osc.set_muted(True)
@@ -317,20 +461,22 @@ class VoiceControlService:
 
     def set_thinking_test(self, enabled: bool) -> None:
         enabled = bool(enabled)
-        with self._lock:
-            self._thinking_test_override = enabled
-        if enabled:
-            # A display test should remain visibly testable even when the previous
-            # target/feedback is already True. Pulse OFF before ON so the avatar
-            # Animator must traverse both transitions instead of receiving the same
-            # unchanged Bool again.
-            self.osc.send_thinking(False)
-            time.sleep(0.15)
-            self.osc.send_thinking(True)
+        with self._thinking_output_lock:
             with self._lock:
-                self._thinking_output = True
-            return
-        self._update_thinking_output()
+                self._thinking_test_override = enabled
+            if enabled:
+                # A display test should remain visibly testable even when the previous
+                # target/feedback is already True. Pulse OFF before ON so the avatar
+                # Animator must traverse both transitions instead of receiving the same
+                # unchanged Bool again.
+                self.osc.send_thinking(False)
+                time.sleep(0.15)
+                self.osc.send_thinking(True)
+                with self._lock:
+                    self._thinking_output = True
+                    self._thinking_last_sent_at = time.monotonic()
+                return
+            self._update_thinking_output(force=True)
 
     def start_motion_diagnostic_test(self) -> None:
         self.motion.start_diagnostic_test()
@@ -429,6 +575,9 @@ def make_handler(
                 elif self.path == "/api/status":
                     service.set_status(int(body["value"]))
                     message = "アバター状態を変更しました"
+                elif self.path == "/api/preflight/start":
+                    service.preflight_and_start()
+                    message = "OSC同期を確認し、アバターをONLINEにしました"
                 elif self.path == "/api/loop/reset":
                     service.reset_loop()
                     message = "ループ警報をリセットしました（ミュートは解除していません）"

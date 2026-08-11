@@ -53,6 +53,13 @@ class VRChatOscController:
         self._observed_motion_expression: int | None = None
         self._thinking = False
         self._observed_thinking: bool | None = None
+        self._probe = False
+        self._observed_probe: bool | None = None
+        self._probe_version = 0
+        self._probe_feedback_at = 0.0
+        self._probe_lock = threading.Lock()
+        self._avatar_id: str | None = None
+        self._last_feedback_at = 0.0
         self._avatar_replay_generation = 0
 
     @property
@@ -103,6 +110,10 @@ class VRChatOscController:
             f"/avatar/parameters/{self.config.thinking_parameter}",
             self._on_thinking,
         )
+        dispatcher.map(
+            f"/avatar/parameters/{self.config.probe_parameter}",
+            self._on_probe,
+        )
         dispatcher.map("/avatar/change", self._on_avatar_change)
         self._server = self._server_factory(
             (self.config.listen_host, self.config.output_port), dispatcher
@@ -130,9 +141,10 @@ class VRChatOscController:
         with self._condition:
             self._mute_state = state
             self._mute_version += 1
+            self._last_feedback_at = time.monotonic()
             self._condition.notify_all()
 
-    def _on_avatar_change(self, _address: str, *_values: object) -> None:
+    def _on_avatar_change(self, _address: str, *values: object) -> None:
         # VRChat reports the avatar change before the new playable is always ready
         # to consume custom parameters. Delay and replay the complete state instead
         # of relying on a single immediate UDP packet.
@@ -144,6 +156,9 @@ class VRChatOscController:
             self._observed_motion_gesture = None
             self._observed_motion_expression = None
             self._observed_thinking = None
+            self._observed_probe = None
+            self._avatar_id = str(values[0]) if values else None
+            self._last_feedback_at = time.monotonic()
             self._avatar_replay_generation += 1
             generation = self._avatar_replay_generation
         threading.Thread(
@@ -172,6 +187,7 @@ class VRChatOscController:
         self.send_motion_gesture(gesture)
         self.send_motion_expression(expression)
         self.send_thinking(thinking)
+        self.send_probe(False)
 
     def _on_status(self, _address: str, value: object) -> None:
         try:
@@ -181,12 +197,14 @@ class VRChatOscController:
         with self._condition:
             self._observed_status = status
             self._status_version += 1
+            self._last_feedback_at = time.monotonic()
             self._condition.notify_all()
 
     def _on_motion_enabled(self, _address: str, value: object) -> None:
         with self._condition:
             self._motion_enabled = bool(value)
             self._observed_motion_enabled = bool(value)
+            self._last_feedback_at = time.monotonic()
             self._condition.notify_all()
 
     def _on_motion_activity(self, _address: str, value: object) -> None:
@@ -196,6 +214,7 @@ class VRChatOscController:
             return
         with self._condition:
             self._observed_motion_activity = activity
+            self._last_feedback_at = time.monotonic()
             self._condition.notify_all()
 
     def _on_motion_energy(self, _address: str, value: object) -> None:
@@ -205,6 +224,7 @@ class VRChatOscController:
             return
         with self._condition:
             self._observed_motion_energy = energy
+            self._last_feedback_at = time.monotonic()
             self._condition.notify_all()
 
     def _on_motion_gesture(self, _address: str, value: object) -> None:
@@ -214,6 +234,7 @@ class VRChatOscController:
             return
         with self._condition:
             self._observed_motion_gesture = gesture
+            self._last_feedback_at = time.monotonic()
             self._condition.notify_all()
 
     def _on_motion_expression(self, _address: str, value: object) -> None:
@@ -223,15 +244,30 @@ class VRChatOscController:
             return
         with self._condition:
             self._observed_motion_expression = expression
+            self._last_feedback_at = time.monotonic()
             self._condition.notify_all()
 
     def _on_thinking(self, _address: str, value: object) -> None:
         with self._condition:
             self._observed_thinking = bool(value)
+            self._last_feedback_at = time.monotonic()
+            self._condition.notify_all()
+
+    def _on_probe(self, _address: str, value: object) -> None:
+        with self._condition:
+            self._observed_probe = bool(value)
+            self._probe_version += 1
+            self._probe_feedback_at = time.monotonic()
+            self._last_feedback_at = self._probe_feedback_at
             self._condition.notify_all()
 
     def feedback_snapshot(self) -> dict[str, object]:
         with self._condition:
+            feedback_age = (
+                None
+                if self._last_feedback_at <= 0.0
+                else round(max(0.0, time.monotonic() - self._last_feedback_at), 2)
+            )
             return {
                 "status": None if self._observed_status is None else int(self._observed_status),
                 "status_target": int(self._status),
@@ -248,6 +284,12 @@ class VRChatOscController:
                 "expression_target": self._motion_expression,
                 "thinking": self._observed_thinking,
                 "thinking_target": self._thinking,
+                "probe": self._observed_probe,
+                "probe_target": self._probe,
+                "avatar_id": self._avatar_id,
+                "avatar_generation": self._avatar_replay_generation,
+                "osc_listener_running": self._server is not None,
+                "last_feedback_age_sec": feedback_age,
             }
 
     def send_status(self, status: AgentStatus | int) -> None:
@@ -317,6 +359,53 @@ class VRChatOscController:
         with self._condition:
             self._thinking = bool(thinking)
         self._send_parameter_reliably(self.config.thinking_parameter, bool(thinking))
+
+    def send_probe(self, value: bool) -> None:
+        with self._condition:
+            self._probe = bool(value)
+        self._send_parameter_reliably(self.config.probe_parameter, bool(value))
+
+    def confirm_probe_roundtrip(self) -> float:
+        """Toggle the dedicated avatar Bool and return the worst OSC RTT in ms."""
+        if self._server is None:
+            raise RuntimeError("OSC listener is not running")
+
+        with self._probe_lock:
+            # Establish a known OFF edge first. It is intentionally not required to
+            # produce feedback because an already-OFF avatar may not emit duplicates.
+            self.send_probe(False)
+            time.sleep(0.12)
+            on_rtt = self._set_probe_confirmed(True)
+            off_rtt = self._set_probe_confirmed(False)
+            return round(max(on_rtt, off_rtt), 1)
+
+    def _set_probe_confirmed(self, desired: bool) -> float:
+        for _attempt in range(max(2, self.config.mute_retry_count + 1)):
+            with self._condition:
+                before_version = self._probe_version
+            started_at = time.monotonic()
+            with self._condition:
+                self._probe = bool(desired)
+            self._send_parameter(self.config.probe_parameter, bool(desired))
+            deadline = started_at + self.config.mute_confirm_timeout_sec
+            with self._condition:
+                while (
+                    self._probe_version == before_version
+                    or self._observed_probe is not desired
+                ):
+                    remaining = deadline - time.monotonic()
+                    if remaining <= 0:
+                        break
+                    self._condition.wait(remaining)
+                if self._probe_version != before_version and self._observed_probe is desired:
+                    return max(0.0, (self._probe_feedback_at - started_at) * 1000.0)
+
+        actual = self.feedback_snapshot()["probe"]
+        raise RuntimeError(
+            "VRChat did not return VoiceAgentOscProbe "
+            f"{str(desired).upper()} (actual: {actual if actual is not None else 'unknown'}). "
+            "Enable VRChat OSC and upload the avatar version containing VoiceAgentOscProbe."
+        )
 
     def _send_parameter(self, parameter: str, value: object) -> None:
         self._client.send_message(f"/avatar/parameters/{parameter}", value)

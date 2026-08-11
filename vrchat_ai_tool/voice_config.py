@@ -42,6 +42,7 @@ class VoiceOscConfig:
     motion_gesture_parameter: str = "VoiceAgentGesture"
     motion_expression_parameter: str = "VoiceAgentExpression"
     thinking_parameter: str = "VoiceAgentThinking"
+    probe_parameter: str = "VoiceAgentOscProbe"
     voice_input_mode: str = "toggle"
     mute_confirm_timeout_sec: float = 2.0
     mute_retry_count: int = 2

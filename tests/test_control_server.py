@@ -8,6 +8,7 @@ import urllib.error
 import urllib.request
 from http.server import ThreadingHTTPServer
 from pathlib import Path
+from types import SimpleNamespace
 from unittest.mock import patch
 
 from vrchat_ai_tool.chatgpt_ui_state import UiActivityState
@@ -36,6 +37,7 @@ class FakeService:
         self.motion_enabled = True
         self.ui_monitor_enabled = True
         self.thinking_test_enabled = False
+        self.preflight_started = False
         self.diagnostic_calls: list[tuple[str, int | None]] = []
 
     def snapshot(self) -> dict[str, object]:
@@ -56,6 +58,8 @@ class FakeService:
                 "expression_target": 0,
                 "thinking": False,
                 "thinking_target": False,
+                "probe": False,
+                "probe_target": False,
             },
             "muted": self.muted,
             "loop": {"enabled": self.loop_enabled, "running": self.loop_enabled, "triggered": False},
@@ -76,6 +80,17 @@ class FakeService:
                 "last_error": "",
                 "test_override": self.thinking_test_enabled,
             },
+            "osc": {"target": "127.0.0.1:9000", "listen": "127.0.0.1:9001"},
+            "preflight": {
+                "state": "ready" if self.preflight_started else "not_run",
+                "message": "OSC同期済み・ONLINE" if self.preflight_started else "未実行",
+                "osc_ok": self.preflight_started,
+                "probe_ok": self.preflight_started,
+                "baseline_ok": self.preflight_started,
+                "probe_rtt_ms": 1.2 if self.preflight_started else None,
+                "avatar_id": None,
+                "avatar_generation": 0,
+            },
             "last_error": "",
         }
 
@@ -87,6 +102,10 @@ class FakeService:
 
     def set_status(self, _value: int) -> None:
         return
+
+    def preflight_and_start(self) -> dict[str, object]:
+        self.preflight_started = True
+        return {"state": "ready"}
 
     def reset_loop(self) -> None:
         return
@@ -120,6 +139,85 @@ class FakeService:
 
 
 class ControlServerTests(unittest.TestCase):
+    def test_preflight_probes_resets_and_enters_online(self) -> None:
+        class PreflightOsc:
+            def __init__(self) -> None:
+                self.statuses: list[int] = []
+                self.thinking: list[bool] = []
+
+            def set_status_confirmed(self, value: object) -> None:
+                self.statuses.append(int(value))
+
+            @staticmethod
+            def confirm_probe_roundtrip() -> float:
+                return 7.4
+
+            def send_thinking(self, value: bool) -> None:
+                self.thinking.append(value)
+
+            @staticmethod
+            def feedback_snapshot() -> dict[str, object]:
+                return {
+                    "osc_listener_running": True,
+                    "probe": False,
+                    "avatar_id": "avtr_test",
+                    "avatar_generation": 2,
+                }
+
+        class PreflightMotion:
+            def __init__(self) -> None:
+                self.stopped = False
+                self.enabled: bool | None = None
+
+            def stop_diagnostic_test(self) -> None:
+                self.stopped = True
+
+            def set_enabled(self, enabled: bool) -> None:
+                self.enabled = enabled
+
+        service = object.__new__(VoiceControlService)
+        service._lock = threading.RLock()
+        service._preflight_lock = threading.Lock()
+        service._thinking_output_lock = threading.RLock()
+        service._thinking_test_override = True
+        service._thinking_output = True
+        service._thinking_last_sent_at = 0.0
+        service._preflight = {}
+        service.last_error = "old error"
+        service.osc = PreflightOsc()
+        service.motion = PreflightMotion()
+        service.config = SimpleNamespace(motion=SimpleNamespace(enabled=True))
+        service.loop_guard = SimpleNamespace(
+            detector=SimpleNamespace(last=SimpleNamespace(triggered=False))
+        )
+
+        result = service.preflight_and_start()
+
+        self.assertEqual(service.osc.statuses, [3, 1])
+        self.assertEqual(service.osc.thinking, [False])
+        self.assertTrue(service.motion.stopped)
+        self.assertTrue(service.motion.enabled)
+        self.assertEqual(result["state"], "ready")
+        self.assertEqual(result["probe_rtt_ms"], 7.4)
+        self.assertEqual(result["avatar_generation"], 2)
+        self.assertFalse(service._thinking_test_override)
+
+    def test_ready_preflight_becomes_stale_after_avatar_change(self) -> None:
+        service = object.__new__(VoiceControlService)
+        service._preflight = {
+            "state": "ready",
+            "message": "OSC同期済み・ONLINE",
+            "probe_ok": True,
+            "baseline_ok": True,
+            "avatar_generation": 2,
+        }
+
+        result = service._preflight_snapshot({"avatar_generation": 3})
+
+        self.assertEqual(result["state"], "stale")
+        self.assertFalse(result["probe_ok"])
+        self.assertFalse(result["baseline_ok"])
+
     def test_thinking_display_test_pulses_off_before_on(self) -> None:
         class RecordingOsc:
             def __init__(self) -> None:
@@ -130,8 +228,10 @@ class ControlServerTests(unittest.TestCase):
 
         service = object.__new__(VoiceControlService)
         service._lock = threading.RLock()
+        service._thinking_output_lock = threading.RLock()
         service._thinking_test_override = False
         service._thinking_output = False
+        service._thinking_last_sent_at = 0.0
         service.osc = RecordingOsc()
 
         with patch("vrchat_ai_tool.control_server.time.sleep") as sleep:
@@ -141,6 +241,85 @@ class ControlServerTests(unittest.TestCase):
         self.assertTrue(service._thinking_test_override)
         self.assertTrue(service._thinking_output)
         sleep.assert_called_once_with(0.15)
+
+    def test_thinking_packets_cannot_be_reordered_across_threads(self) -> None:
+        class BlockingOsc:
+            def __init__(self) -> None:
+                self.values: list[bool] = []
+                self.true_send_started = threading.Event()
+                self.release_true_send = threading.Event()
+
+            def send_thinking(self, value: bool) -> None:
+                if value and not self.true_send_started.is_set():
+                    self.true_send_started.set()
+                    self.release_true_send.wait(timeout=2.0)
+                self.values.append(value)
+
+        class MutableMotion:
+            def __init__(self) -> None:
+                self.activity = 0
+
+            def snapshot(self) -> dict[str, int]:
+                return {"activity": self.activity}
+
+        service = object.__new__(VoiceControlService)
+        service._lock = threading.RLock()
+        service._thinking_output_lock = threading.RLock()
+        service._thinking_test_override = False
+        service._thinking_output = False
+        service._thinking_last_sent_at = 0.0
+        service._ui_state = UiActivityState.WORKING
+        service.osc = BlockingOsc()
+        service.motion = MutableMotion()
+
+        ui_thread = threading.Thread(target=service._update_thinking_output)
+        ui_thread.start()
+        self.assertTrue(service.osc.true_send_started.wait(timeout=1.0))
+
+        service.motion.activity = 1
+        speech_thread = threading.Thread(target=service._update_thinking_output)
+        speech_thread.start()
+        service.osc.release_true_send.set()
+        ui_thread.join(timeout=1.0)
+        speech_thread.join(timeout=1.0)
+
+        self.assertFalse(ui_thread.is_alive())
+        self.assertFalse(speech_thread.is_alive())
+        self.assertEqual(service.osc.values, [True, False])
+        self.assertFalse(service._thinking_output)
+
+    def test_thinking_output_is_reasserted_after_one_second(self) -> None:
+        class RecordingOsc:
+            def __init__(self) -> None:
+                self.values: list[bool] = []
+
+            def send_thinking(self, value: bool) -> None:
+                self.values.append(value)
+
+        class IdleMotion:
+            @staticmethod
+            def snapshot() -> dict[str, int]:
+                return {"activity": 0}
+
+        service = object.__new__(VoiceControlService)
+        service._lock = threading.RLock()
+        service._thinking_output_lock = threading.RLock()
+        service._thinking_test_override = False
+        service._thinking_output = False
+        service._thinking_last_sent_at = 0.0
+        service._ui_state = UiActivityState.WORKING
+        service.osc = RecordingOsc()
+        service.motion = IdleMotion()
+
+        with patch(
+            "vrchat_ai_tool.control_server.time.monotonic",
+            side_effect=(10.0, 10.5, 11.1),
+        ):
+            service._update_thinking_output()
+            service._update_thinking_output()
+            service._update_thinking_output()
+
+        self.assertEqual(service.osc.values, [True, True])
 
     def test_thinking_is_hidden_only_while_voice_is_speaking(self) -> None:
         self.assertFalse(should_show_thinking(UiActivityState.IDLE, 0))
@@ -169,6 +348,10 @@ class ControlServerTests(unittest.TestCase):
         self.assertIn("ChatGPT画面状態監視", CONTROL_HTML)
         self.assertIn("thinking_target", CONTROL_HTML)
         self.assertIn("考え中表示テスト", CONTROL_HTML)
+        self.assertIn("/api/preflight/start", CONTROL_HTML)
+        self.assertIn("同期確認して開始", CONTROL_HTML)
+        self.assertLess(CONTROL_HTML.index("緊急ミュート"), CONTROL_HTML.index("アバター状態表示"))
+        self.assertLess(CONTROL_HTML.index("アバター状態表示"), CONTROL_HTML.index("自己ループ対策"))
 
     def test_token_is_generated_once_and_reused(self) -> None:
         with tempfile.TemporaryDirectory() as directory:
@@ -252,6 +435,17 @@ class ControlServerTests(unittest.TestCase):
                 payload = json.loads(response.read().decode("utf-8"))
             self.assertTrue(payload["ok"])
             self.assertTrue(service.thinking_test_enabled)
+
+            request = urllib.request.Request(
+                base + "/api/preflight/start",
+                data=b"{}",
+                method="POST",
+                headers={"Authorization": "Bearer " + "x" * 32, "Content-Type": "application/json"},
+            )
+            with urllib.request.urlopen(request, timeout=2) as response:
+                payload = json.loads(response.read().decode("utf-8"))
+            self.assertTrue(payload["ok"])
+            self.assertTrue(service.preflight_started)
 
             request = urllib.request.Request(
                 base + "/api/motion/diagnostic/gesture",

@@ -447,3 +447,17 @@ uvx ruff check vrchat_ai_tool/chatgpt_ui_state.py `
 5. Unityプロジェクト側の`VoiceAgentLexaSetup.cs`、考え中テクスチャ、生成結果を確認する
 6. 5700X PCでpull後、操作サーバーのGUIと別アカウント視点で同期を確認する
 7. Unityを直接変更する前に、ほかのセッションがUnityを操作中でないかユーザーへ確認する
+
+## 13. 2026-08-12 開始前OSC同期（最新・上記Git記述より優先）
+
+- Python側に`VoiceAgentOscProbe`（Bool、既定false）を追加。
+- GUIの`同期確認して開始`は、MAINTENANCE確認 → Probe OFF/ON/OFF往復 →
+  モーション・表情・考え中の初期値再送 → ONLINE確認の順で実行する。
+- GUIにはOSC送受信先、アバターID、プローブ結果、最大往復時間、初期化結果を表示する。
+- `/avatar/change`受信後は以前の成功結果を`要再確認`として扱う。
+- `アバター状態表示`カードは`緊急ミュート`直下へ移動した。
+- Unityの`VoiceAgentStatusHalo`生成処理へ同期Bool `VoiceAgentOscProbe`を追加済み。
+  生成・NDMF検証は成功し、同期パラメーター使用量は61/256 bits。
+- このUnity変更をVRChatへ反映するにはアバターの再アップロードが1回必要。
+- 直前の考え中表示競合修正（送信順序ロック＋1秒ごとの再送）も同じ未コミット差分に含まれる。
+- ユーザー所有の`5700X_PC/`と`config/settings.toml`は引き続き変更・コミットしない。

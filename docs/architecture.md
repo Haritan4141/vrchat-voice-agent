@@ -6,7 +6,7 @@
 ChatGPT Desktop Voice ── 会話生成・音声認識・音声出力
 Windows + VB-CABLE   ── A/Bの音声経路
 vrchat-voice-agent   ── 診断・監視・安全停止・UI状態読取・OSC・LAN操作
-VRChat Avatar        ── VoiceAgentStatus / VoiceAgentThinkingの表示
+VRChat Avatar        ── VoiceAgentStatus / VoiceAgentThinkingの表示・VoiceAgentOscProbeの往復確認
 ```
 
 PythonサービスはChatGPTの画面をWindows UI Automationで読み取りますが、クリック、文字入力、設定変更、会話生成は行いません。旧ローカルSTT/LLM/TTSも起動しません。
@@ -20,10 +20,13 @@ PythonサービスはChatGPTの画面をWindows UI Automationで読み取りま�
       ├─ UDP/9000 → VRChat /input/Voice
       ├─ UDP/9000 → /avatar/parameters/VoiceAgentStatus
       ├─ UDP/9000 → /avatar/parameters/VoiceAgentThinking
+      ├─ UDP/9000 ↔ /avatar/parameters/VoiceAgentOscProbe
       └─ UDP/9001 ← VRChat /avatar/parameters/MuteSelf
 ```
 
 ミュートは`/input/Voice`を押したあと、VRChatから返る`MuteSelf`を確認します。現在値が不明な場合でも、確認結果が希望状態と逆ならもう一度だけ切り替えるため、単純なブラインドトグルにはなりません。
+
+開始前同期では`VoiceAgentOscProbe`をOFF→ON→OFFへ変化させ、両方のエッジがVRChatのOSC出力から戻ることを確認します。成功後だけ安全な初期値とONLINEを送るため、以前のUDP取りこぼしや別アバター選択を開始前に発見できます。
 
 ## 自己ループ検出
 

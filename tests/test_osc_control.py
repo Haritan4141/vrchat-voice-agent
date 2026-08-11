@@ -24,6 +24,9 @@ class FakeClient:
         elif address == "/avatar/parameters/VoiceAgentThinking":
             assert self.controller is not None
             self.controller._on_thinking(address, value)
+        elif address == "/avatar/parameters/VoiceAgentOscProbe":
+            assert self.controller is not None
+            self.controller._on_probe(address, value)
 
 
 class OscControlTests(unittest.TestCase):
@@ -141,6 +144,39 @@ class OscControlTests(unittest.TestCase):
         feedback = controller.feedback_snapshot()
         self.assertTrue(feedback["thinking"])
         self.assertTrue(feedback["thinking_target"])
+
+    def test_dedicated_probe_confirms_both_edges(self) -> None:
+        fake = FakeClient()
+        controller = VRChatOscController(VoiceOscConfig(), client_factory=lambda _h, _p: fake)
+        fake.controller = controller
+        controller._server = object()
+
+        rtt_ms = controller.confirm_probe_roundtrip()
+
+        feedback = controller.feedback_snapshot()
+        self.assertGreaterEqual(rtt_ms, 0.0)
+        self.assertFalse(feedback["probe"])
+        self.assertFalse(feedback["probe_target"])
+        self.assertIn(("/avatar/parameters/VoiceAgentOscProbe", True), fake.messages)
+        self.assertIn(("/avatar/parameters/VoiceAgentOscProbe", False), fake.messages)
+
+    def test_probe_error_explains_that_avatar_upload_is_required(self) -> None:
+        class SilentClient:
+            def __init__(self) -> None:
+                self.messages: list[tuple[str, object]] = []
+
+            def send_message(self, address: str, value: object) -> None:
+                self.messages.append((address, value))
+
+        fake = SilentClient()
+        controller = VRChatOscController(
+            VoiceOscConfig(mute_confirm_timeout_sec=0.01, mute_retry_count=0),
+            client_factory=lambda _h, _p: fake,
+        )
+        controller._server = object()
+
+        with self.assertRaisesRegex(RuntimeError, "VoiceAgentOscProbe"):
+            controller.confirm_probe_roundtrip()
 
 
 if __name__ == "__main__":
