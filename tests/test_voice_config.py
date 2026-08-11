@@ -8,6 +8,7 @@ from vrchat_ai_tool.voice_config import (
     load_voice_config,
     resolve_config_relative,
     save_caption_mode,
+    save_caption_stt_quality,
     save_loop_guard_enabled,
     save_motion_enabled,
     save_ui_monitor_enabled,
@@ -41,6 +42,7 @@ class VoiceConfigTests(unittest.TestCase):
             self.assertTrue(config.ui_monitor.include_offscreen)
             self.assertEqual(config.ui_monitor.release_hold_sec, 2.5)
             self.assertEqual(config.captions.mode, "off")
+            self.assertEqual(config.captions.stt_quality, "standard")
             self.assertEqual(config.captions.stt_model, "small")
 
     def test_loop_guard_switch_is_persisted_without_losing_other_settings(self) -> None:
@@ -108,6 +110,18 @@ class VoiceConfigTests(unittest.TestCase):
             self.assertIn("[captions]", saved)
             self.assertIn('mode = "stt"', saved)
             self.assertEqual(load_voice_config(path).captions.mode, "stt")
+
+    def test_caption_stt_quality_is_persisted(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            path = Path(directory) / "voice.toml"
+            path.write_text("[captions]\nmode = \"stt\"\n", encoding="utf-8")
+            config = load_voice_config(path)
+
+            save_caption_stt_quality(config, "accuracy")
+
+            saved = path.read_text(encoding="utf-8")
+            self.assertIn('stt_quality = "accuracy"', saved)
+            self.assertEqual(load_voice_config(path).captions.stt_quality, "accuracy")
 
 
 if __name__ == "__main__":

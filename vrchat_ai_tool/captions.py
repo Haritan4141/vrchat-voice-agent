@@ -18,6 +18,20 @@ from .stt import FasterWhisperTranscriber
 from .voice_config import VoiceCaptionConfig
 
 CAPTION_MODES = {"off", "uia", "stt"}
+STT_QUALITY_PRESETS = {
+    "standard": {
+        "model": "small",
+        "beam_size": 1,
+        "partial_interval_sec": 2.5,
+        "end_silence_ms": 700,
+    },
+    "accuracy": {
+        "model": "medium",
+        "beam_size": 5,
+        "partial_interval_sec": 4.0,
+        "end_silence_ms": 900,
+    },
+}
 _TEXT_CONTENT_PATTERN = re.compile(r"[0-9A-Za-zぁ-んァ-ヶ一-龯]")
 _UI_TEXT_MARKERS = (
     "ウェブを検索中",
@@ -178,6 +192,7 @@ class _SttJob:
     final: bool
     submitted_at: float
     warmup_only: bool = False
+    reload_model: bool = False
 
 
 @dataclass(frozen=True, slots=True)
@@ -201,6 +216,13 @@ class CaptionService:
         clock: Callable[[], float] = time.monotonic,
     ) -> None:
         self.config = config
+        # Existing standard configurations may intentionally tune segmentation
+        # thresholds. Preserve those values; the accuracy preset deliberately
+        # replaces them with its longer-context settings.
+        self._apply_stt_quality(
+            config.stt_quality,
+            force=config.stt_quality.strip().casefold() == "accuracy",
+        )
         self.osc = osc
         self.clock = clock
         self.transcriber_factory = transcriber_factory or self._create_transcriber
@@ -247,6 +269,24 @@ class CaptionService:
         normalized = str(mode).strip().casefold()
         if normalized not in CAPTION_MODES:
             raise ValueError("caption mode must be off, uia, or stt")
+        return normalized
+
+    @staticmethod
+    def _validate_stt_quality(quality: str) -> str:
+        normalized = str(quality).strip().casefold()
+        if normalized not in STT_QUALITY_PRESETS:
+            raise ValueError("STT quality must be standard or accuracy")
+        return normalized
+
+    def _apply_stt_quality(self, quality: str, *, force: bool = True) -> str:
+        normalized = self._validate_stt_quality(quality)
+        preset = STT_QUALITY_PRESETS[normalized]
+        self.config.stt_quality = normalized
+        if force:
+            self.config.stt_model = str(preset["model"])
+            self.config.stt_beam_size = int(preset["beam_size"])
+            self.config.stt_partial_interval_sec = float(preset["partial_interval_sec"])
+            self.config.stt_end_silence_ms = int(preset["end_silence_ms"])
         return normalized
 
     @property
@@ -326,8 +366,39 @@ class CaptionService:
                 "send_count": self._send_count,
                 "uia_candidate_count": self._uia_candidate_count,
                 "stt_state": self._stt_state,
+                "stt_quality": self.config.stt_quality,
+                "stt_model": self.config.stt_model,
+                "stt_beam_size": self.config.stt_beam_size,
                 "stt_latency_ms": self._last_stt_latency_ms,
             }
+
+    def set_stt_quality(self, quality: str) -> str:
+        """Apply and warm a new STT preset without restarting the control server."""
+        with self._output_condition:
+            normalized = self._apply_stt_quality(quality)
+            self._generation += 1
+            self._pending = None
+            self._latest_job_by_utterance.clear()
+            self._reset_utterance_locked()
+            self._last_text = ""
+            self._last_source = ""
+            self._last_error = ""
+            self._stt_state = "loading"
+            self._last_stt_latency_ms = None
+            self._set_typing_locked(False)
+            self._job_sequence += 1
+            job = _SttJob(
+                self._job_sequence,
+                self._utterance_id,
+                b"",
+                False,
+                self.clock(),
+                warmup_only=True,
+                reload_model=True,
+            )
+            self._replace_stt_job(job)
+            self._output_condition.notify_all()
+        return normalized
 
     def on_ui_scan(self, result: UiScanResult) -> None:
         now = self.clock()
@@ -534,6 +605,9 @@ class CaptionService:
             except queue.Empty:
                 continue
             try:
+                if job.reload_model:
+                    with self._lock:
+                        self._transcriber = None
                 transcriber = self._get_transcriber()
                 if job.warmup_only:
                     continue

@@ -20,6 +20,7 @@ from .voice_config import (
     ChatGPTVoiceConfig,
     resolve_config_relative,
     save_caption_mode,
+    save_caption_stt_quality,
     save_loop_guard_enabled,
     save_motion_enabled,
     save_ui_monitor_enabled,
@@ -89,11 +90,15 @@ h3{font-size:1rem;margin:16px 0 8px}.wide{grid-column:1/-1}
 <button class="ok" onclick="setCaptionMode('uia')">UIA</button>
 <button class="warn" onclick="setCaptionMode('stt')">STT</button>
 <button onclick="post('/api/captions/test')">字幕表示テスト</button></div>
+<h3>STT精度</h3><div class="grid">
+<button onclick="setCaptionQuality('standard')">標準（small・高速）</button>
+<button class="ok" onclick="setCaptionQuality('accuracy')">高精度（medium・低速）</button></div>
 <dl><dt>選択中</dt><dd id="captionMode">—</dd>
+<dt>STT設定</dt><dd id="captionQuality">—</dd>
 <dt>最新字幕</dt><dd id="captionLast">—</dd>
 <dt>送信数</dt><dd id="captionCount">—</dd>
 <dt>エラー</dt><dd id="captionError">—</dd></dl>
-<small>UIAはChatGPT画面の読み取り、STTはCABLE-BのAI音声をローカル文字起こしします。切替は保存されます。文字入力やOpenAI APIは使用しません。</small></div>
+<small>UIAはChatGPT画面の読み取り、STTはCABLE-BのAI音声をローカル文字起こしします。高精度は初回にmediumモデルを取得するため、readyになるまで待ってください。切替は保存されます。文字入力やOpenAI APIは使用しません。</small></div>
 <div class="card"><h2>アバター自動モーション</h2><div class="grid">
 <button class="ok" onclick="setMotion(true)">モーションを有効化</button>
 <button class="danger" onclick="setMotion(false)">モーションを停止</button></div></div>
@@ -137,6 +142,7 @@ async function request(path,opts={}){opts.headers={...(opts.headers||{}),Authori
 async function post(path,body={}){try{const d=await request(path,{method:'POST',body:JSON.stringify(body)}); message(d.message||'OK');refresh()}catch(e){message(e.message,true)}}
 function setStatus(value){post('/api/status',{value})} function setLoopGuard(enabled){post('/api/loop/enabled',{enabled})} function setMotion(enabled){post('/api/motion/enabled',{enabled})} function setUiMonitor(enabled){post('/api/ui-monitor/enabled',{enabled})} function setThinkingTest(enabled){post('/api/thinking/test',{enabled})}
 function setCaptionMode(mode){post('/api/captions/mode',{mode})}
+function setCaptionQuality(quality){post('/api/captions/quality',{quality})}
 function diagnosticActivity(value){post('/api/motion/diagnostic/activity',{value})} function diagnosticGesture(value){post('/api/motion/diagnostic/gesture',{value})} function diagnosticExpression(value){post('/api/motion/diagnostic/expression',{value})}
 async function preflightStart(){const button=document.getElementById('preflightButton');button.disabled=true;message('OSC同期を確認しています…');try{const d=await request('/api/preflight/start',{method:'POST',body:'{}'});message(d.message||'同期確認が完了しました');await refresh()}catch(e){message(e.message,true);await refresh()}finally{button.disabled=false}}
 function message(value,error=false){const e=document.getElementById('message');e.textContent=value;e.style.color=error?'#ff9cab':'#9dd9ff'}
@@ -147,7 +153,7 @@ async function refresh(){if(!token())return;try{const d=await request('/api/stat
  document.getElementById('levels').textContent=`${d.loop.cable_a_rms} / ${d.loop.cable_b_rms}`;
  const ui=d.ui_monitor||{};document.getElementById('chatgptState').textContent=(ui.enabled===false?'監視無効':(ui.last_error?`エラー: ${ui.last_error}`:(!ui.available?'ChatGPT未検出':`${uiStateNames[ui.state]||ui.state}（${ui.element_count||0}要素）`)))+(ui.test_override?' / 表示テスト中':'');
  document.getElementById('thinking').textContent=confirmedValue(a.thinking,a.thinking_target,v=>v?'考え中 ON':'OFF');
- const c=d.captions||{};const captionNames={off:'OFF',uia:'UIA（画面読取）',stt:'STT（CABLE-B）'};const captionSummary=`${captionNames[c.mode]||c.mode||'—'}${c.speaking?' / AI発話検出中':''}`;document.getElementById('captionState').textContent=captionSummary;document.getElementById('captionStt').textContent=c.stt_state||'—';document.getElementById('captionMode').textContent=captionSummary;document.getElementById('captionLast').textContent=c.last_text||'—';document.getElementById('captionCount').textContent=String(c.send_count??0);document.getElementById('captionError').textContent=c.last_error||'なし';
+ const c=d.captions||{};const captionNames={off:'OFF',uia:'UIA（画面読取）',stt:'STT（CABLE-B）'};const qualityNames={standard:'標準',accuracy:'高精度'};const captionSummary=`${captionNames[c.mode]||c.mode||'—'}${c.speaking?' / AI発話検出中':''}`;document.getElementById('captionState').textContent=captionSummary;document.getElementById('captionStt').textContent=c.stt_state||'—';document.getElementById('captionMode').textContent=captionSummary;document.getElementById('captionQuality').textContent=`${qualityNames[c.stt_quality]||c.stt_quality||'—'} / ${c.stt_model||'—'} / beam ${c.stt_beam_size??'—'}`;document.getElementById('captionLast').textContent=c.last_text||'—';document.getElementById('captionCount').textContent=String(c.send_count??0);document.getElementById('captionError').textContent=c.last_error||'なし';
  const enabled=confirmedValue(a.motion_enabled,a.motion_enabled_target,v=>v?'ON':'OFF');const activity=confirmedValue(a.activity,a.activity_target,v=>activityNames[v]||String(v));document.getElementById('motion').textContent=`${activity}${d.motion.diagnostic_running?` / TEST: ${d.motion.diagnostic_label||'手動確認'}`:''} / ${enabled}`;
  const actualEnergy=a.energy===null||a.energy===undefined?'未確認':Number(a.energy).toFixed(2);document.getElementById('motionLevel').textContent=`RMS ${d.motion.input_rms} / ENERGY ${d.motion.energy}（VRChat ${actualEnergy}）`;
  document.getElementById('motionGesture').textContent=confirmedValue(a.gesture,a.gesture_target,v=>`${v} ${gestureNames[v]||'—'}`);
@@ -526,6 +532,11 @@ class VoiceControlService:
         save_caption_mode(self.config, normalized)
         self.captions.set_mode(normalized)
 
+    def set_caption_stt_quality(self, quality: str) -> None:
+        normalized = quality.strip().casefold()
+        save_caption_stt_quality(self.config, normalized)
+        self.captions.set_stt_quality(normalized)
+
     def send_caption_test(self) -> None:
         self.captions.send_test_caption()
 
@@ -687,6 +698,12 @@ def make_handler(
                         raise TypeError("mode must be off, uia, or stt")
                     service.set_caption_mode(mode)
                     message = f"AI発話字幕を{mode.upper()}へ切り替えました"
+                elif self.path == "/api/captions/quality":
+                    quality = body["quality"]
+                    if not isinstance(quality, str):
+                        raise TypeError("quality must be standard or accuracy")
+                    service.set_caption_stt_quality(quality)
+                    message = "STT精度設定を変更し、モデルを読み込んでいます"
                 elif self.path == "/api/captions/test":
                     service.send_caption_test()
                     message = "VRChatチャットボックスへ字幕テストを送信しました"

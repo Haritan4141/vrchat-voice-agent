@@ -266,6 +266,13 @@ UIAは高速で音声認識誤りがありませんが、ChatGPTアプリ更新�
 
 STTは画面構造に依存しません。初めてSTTへ切り替えたときだけ`small`モデルを取得して読み込むため、`字幕STT`が`loading`から`ready`になるまで待ちます。既定はCPU用`int8`です。音声は発話単位の一時WAVへ変換して文字起こし後すぐ削除し、会話ログとして保存しません。OpenAI API、Ollama、VOICEVOX、旧ローカル応答ランタイムは起動しません。
 
+GUIの`STT精度`には次のプリセットがあります。変更は設定へ保存され、操作サーバーを停止せずにモデルを再読み込みします。読み込み中は`字幕STT=loading`となるため、`ready`へ戻ってから会話してください。
+
+- `標準`: `small`、beam 1、途中結果2.5秒、終了無音0.7秒。速度優先
+- `高精度`: `medium`、beam 5、途中結果4秒、終了無音0.9秒。認識精度と文脈を優先
+
+高精度の初回選択時はmediumモデルを新しくダウンロードします。標準よりCPU負荷、メモリ使用量、字幕遅延が増えます。
+
 ```toml
 [captions]
 mode = "off"
@@ -273,6 +280,7 @@ prefix = "AI: "
 max_chars = 144
 min_send_interval_sec = 1.5
 uia_initial_hold_sec = 1.0
+stt_quality = "standard"
 stt_model = "small"
 stt_device = "cpu"
 stt_compute_type = "int8"
@@ -284,8 +292,9 @@ stt_language = "ja"
 1. VRChatのOSCとチャットボックス表示を有効にし、GUIの`字幕表示テスト`で`AI: 字幕表示テストです`が見えることを確認する
 2. `UIA`へ切り替え、ChatGPT Voiceへ短い回答を依頼し、GUIの`最新字幕`とVRChat表示を確認する
 3. `STT`へ切り替え、`字幕STT=ready`を待って同じ依頼を試す
-4. 別アカウントからもチャットボックスが見えるか確認する
-5. 採用する方式を選ぶか、試験後に`OFF`へ戻す
+4. `STT精度=高精度`へ切り替え、再び`ready`を待って同じ依頼で精度と遅延を比較する
+5. 別アカウントからもチャットボックスが見えるか確認する
+6. 採用する方式を選ぶか、試験後に`OFF`へ戻す
 
 ## 9. 終了
 

@@ -497,3 +497,13 @@ uvx ruff check vrchat_ai_tool/chatgpt_ui_state.py `
   通常の`uv sync`と`uv run vrchat-voice-control`だけでSTTまで準備する。
 - ローカルで`faster_whisper`のimport、117件のユニットテスト、対象Ruff検査が成功。
 - ユーザー所有の`5700X_PC/`と`config/settings.toml`は引き続き変更・コミットしない。
+
+## 17. 2026-08-12 STT高精度プリセット
+
+- GUIの字幕カードへSTT精度切替を追加する。
+- `standard`: small、beam 1、途中結果2.5秒、終了無音700ms。
+- `accuracy`: medium、beam 5、途中結果4秒、終了無音900ms。
+- 選択は`[captions].stt_quality`へ保存し、操作サーバーを再起動せずワーカー内で
+  モデルを再読み込みする。切替時は旧発話ジョブと旧字幕を破棄する。
+- 高精度の初回選択時はmediumモデルをダウンロードするため、GUIが`loading`から
+  `ready`へ戻るまで待つ。

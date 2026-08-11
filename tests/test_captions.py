@@ -61,6 +61,44 @@ class FakeTranscriber:
 
 
 class CaptionTests(unittest.TestCase):
+    def test_accuracy_preset_uses_medium_and_more_context(self) -> None:
+        config = VoiceCaptionConfig(stt_quality="accuracy")
+        service = CaptionService(config, FakeOsc())
+
+        snapshot = service.snapshot()
+        self.assertEqual(snapshot["stt_quality"], "accuracy")
+        self.assertEqual(snapshot["stt_model"], "medium")
+        self.assertEqual(snapshot["stt_beam_size"], 5)
+        self.assertEqual(config.stt_partial_interval_sec, 4.0)
+        self.assertEqual(config.stt_end_silence_ms, 900)
+
+    def test_switching_stt_quality_reloads_model_worker(self) -> None:
+        created: list[FakeTranscriber] = []
+
+        def create_transcriber() -> FakeTranscriber:
+            transcriber = FakeTranscriber()
+            created.append(transcriber)
+            return transcriber
+
+        service = CaptionService(
+            VoiceCaptionConfig(mode="off"),
+            FakeOsc(),
+            transcriber_factory=create_transcriber,
+        )
+        service.start()
+        try:
+            service.set_stt_quality("accuracy")
+            deadline = time.monotonic() + 2.0
+            while service.snapshot()["stt_state"] != "ready" and time.monotonic() < deadline:
+                time.sleep(0.01)
+
+            self.assertEqual(service.snapshot()["stt_state"], "ready")
+            self.assertEqual(service.snapshot()["stt_model"], "medium")
+            self.assertEqual(len(created), 1)
+            self.assertTrue(created[0].warmed)
+        finally:
+            service.stop()
+
     def test_chatbox_formatter_uses_rolling_tail_and_144_character_limit(self) -> None:
         result = format_chatbox_text("あ" * 200, "AI: ", 144)
 

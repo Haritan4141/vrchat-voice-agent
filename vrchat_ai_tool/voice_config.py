@@ -120,6 +120,8 @@ class VoiceCaptionConfig:
     # appear below the user's just-finished voice transcript.
     uia_initial_hold_sec: float = 1.0
     uia_post_speech_grace_sec: float = 2.5
+    # standard: small/beam 1, accuracy: medium/beam 5 with more context.
+    stt_quality: str = "standard"
     stt_model: str = "small"
     stt_device: str = "cpu"
     stt_compute_type: str = "int8"
@@ -323,6 +325,15 @@ def save_caption_mode(config: ChatGPTVoiceConfig, mode: str) -> None:
         raise ValueError("caption mode must be off, uia, or stt")
     _save_string_setting(config, "captions", "mode", normalized)
     config.captions.mode = normalized
+
+
+def save_caption_stt_quality(config: ChatGPTVoiceConfig, quality: str) -> None:
+    """Persist the selected STT accuracy preset without rewriting other settings."""
+    normalized = quality.strip().casefold()
+    if normalized not in {"standard", "accuracy"}:
+        raise ValueError("STT quality must be standard or accuracy")
+    _save_string_setting(config, "captions", "stt_quality", normalized)
+    config.captions.stt_quality = normalized
 
 
 def split_names(value: str) -> tuple[str, ...]:

@@ -26,6 +26,7 @@ ChatGPT Voice出力
 - アバター状態: 汎用Intパラメーター`VoiceAgentStatus`へ0〜3を送信
 - 考え中表示: ChatGPTの読み取り専用UI Automation状態とCABLE-Bの無音判定から、同期Bool `VoiceAgentThinking`を自動制御
 - AI発話字幕: UI AutomationまたはCABLE-BのローカルSTTを選び、VRChat標準チャットボックスへ送信
+- STT精度切替: GUIから標準（small）と高精度（medium）を切り替え、モデルを停止なしで再読込
 - キャラクター指示: GPT Live開始後に`system_prompt.txt`を安全に送信し、必要時に再適用
 
 ## 初回準備
