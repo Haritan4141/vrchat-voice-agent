@@ -296,6 +296,11 @@ class CaptionService:
             self.config.mode = normalized
             self._generation += 1
             self._pending = None
+            # A caption from the previous source is not evidence that the newly
+            # selected source is working. Clear it so the LAN GUI reflects only
+            # captions produced after this mode switch.
+            self._last_text = ""
+            self._last_source = ""
             self._last_error = ""
             self._reset_utterance_locked()
             self._uia.reset()

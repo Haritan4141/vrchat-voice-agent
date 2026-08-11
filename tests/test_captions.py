@@ -210,6 +210,18 @@ class CaptionTests(unittest.TestCase):
         finally:
             service.stop()
 
+    def test_switching_mode_clears_caption_from_previous_source(self) -> None:
+        osc = FakeOsc()
+        service = CaptionService(VoiceCaptionConfig(mode="uia"), osc)
+        service._last_text = "AI: UIAで取得した古い字幕"
+        service._last_source = "uia"
+
+        service.set_mode("stt")
+
+        snapshot = service.snapshot()
+        self.assertEqual(snapshot["last_text"], "")
+        self.assertEqual(snapshot["last_source"], "")
+
 
 if __name__ == "__main__":
     unittest.main()
