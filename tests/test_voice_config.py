@@ -9,6 +9,7 @@ from vrchat_ai_tool.voice_config import (
     resolve_config_relative,
     save_loop_guard_enabled,
     save_motion_enabled,
+    save_ui_monitor_enabled,
 )
 
 
@@ -31,6 +32,9 @@ class VoiceConfigTests(unittest.TestCase):
             self.assertEqual(config.osc.motion_activity_parameter, "VoiceAgentActivity")
             self.assertEqual(config.osc.motion_expression_parameter, "VoiceAgentExpression")
             self.assertEqual(config.motion.speaking_expression_min_sec, 2.0)
+            self.assertEqual(config.osc.thinking_parameter, "VoiceAgentThinking")
+            self.assertTrue(config.ui_monitor.enabled)
+            self.assertEqual(config.ui_monitor.release_hold_sec, 2.5)
 
     def test_loop_guard_switch_is_persisted_without_losing_other_settings(self) -> None:
         with tempfile.TemporaryDirectory() as directory:
@@ -71,6 +75,19 @@ class VoiceConfigTests(unittest.TestCase):
             self.assertIn("[motion]", saved)
             self.assertIn("enabled = false", saved)
             self.assertFalse(load_voice_config(path).motion.enabled)
+
+    def test_ui_monitor_switch_is_persisted_in_its_own_section(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            path = Path(directory) / "voice.toml"
+            path.write_text("[osc]\ntarget_host = \"127.0.0.1\"\n", encoding="utf-8")
+            config = load_voice_config(path)
+
+            save_ui_monitor_enabled(config, False)
+
+            saved = path.read_text(encoding="utf-8")
+            self.assertIn("[ui_monitor]", saved)
+            self.assertIn("enabled = false", saved)
+            self.assertFalse(load_voice_config(path).ui_monitor.enabled)
 
 
 if __name__ == "__main__":

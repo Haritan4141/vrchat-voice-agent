@@ -203,8 +203,9 @@ Assets/VoiceAgentLexa
 
 - `VoiceAgentAiTrialSign`
 - `VoiceAgentAiTrialTwoLine`
+- `VoiceAgentThinking`
 
-今回検討している「考え中」はまだUnityへ追加していません。
+「考え中…」表示はUnityへ追加済みです。`VoiceAgentThinking=true`の間は通常の1行・2行表示より優先し、falseへ戻ると元の表示へ復帰します。Expressions Menuには`考え中テスト`も追加しています。
 
 ### 自動モーション用アセット
 
@@ -214,7 +215,7 @@ Assets/VoiceAgentMotion
 
 Unity内ライブプレビューと、LAN GUIからのVRChat実機診断が実装されています。
 
-## 7. 現在進行中の作業: ChatGPT画面状態診断
+## 7. ChatGPT画面状態診断と考え中表示
 
 目的は、ChatGPT VoiceがWeb検索・長い作業などを行っている間、発話していない時間に
 アバターへ「考え中…」と表示することです。
@@ -222,7 +223,7 @@ Unity内ライブプレビューと、LAN GUIからのVRChat実機診断が実�
 ChatGPTデスクトップアプリから外部へ思考状態を通知する公開APIは確認できなかったため、
 Windows UI AutomationでChatGPT画面のアクセシビリティ要素を読み取る診断を実装しました。
 
-### 今回追加した未コミットファイル
+### 診断で追加し、push済みのファイル
 
 ```text
 vrchat_ai_tool/chatgpt_ui_diagnostic.py
@@ -271,23 +272,23 @@ pywinauto>=0.6.9,<1; sys_platform == 'win32'
 40秒以上停止しました。この方式へ戻さないでください。現在はUI Automationの
 `FindAllBuildCache`を使った一括キャッシュ方式です。
 
-### 現在までの実測結果
+### 5700X PCでの実測結果
 
-メインPC上の現在のChatGPTアプリで、714個の可視アクセシビリティ要素を取得しました。
-次の変化を実際に検出できています。
+通常質問とWeb検索を含む3分の診断をエラーなしで完走しました。通常回答・Web検索とも、無名の`StatusBar`かつクラス名に`activityPillMaterial`を含む要素が作業中だけ現れます。Web検索中はさらに「ウェブを検索中」テキストが現れます。
 
 ```text
-15m 6s作業中 -> 15m 8s作業中
+通常回答: activityPillのStatusBar
+Web検索: activityPillのStatusBar + 「ウェブを検索中」
 ```
 
-コンソールとJSONLの両方で`candidate: true`になりました。
+常駐監視はStatusBarを必須信号にするため、会話履歴の「3秒作業しました」や検索ボタンだけでは誤検出しません。
 
 1回のUIA走査には、このPCで約1～2秒かかります。`--interval-seconds 0.5`を指定しても、
 実際の間隔は走査時間より短くなりません。検索や長い作業の検出用途には許容範囲です。
 
 ### テスト結果
 
-- 全ユニットテスト: 52件成功
+- 全ユニットテスト: 59件成功
 - 新規診断ファイルのRuffチェック: 成功
 - CLIヘルプ: 成功
 - 実機UI Automationスモークテスト: 成功
@@ -300,10 +301,9 @@ pywinauto>=0.6.9,<1; sys_platform == 'win32'
 リポジトリ全体へ最新Ruffルールを適用すると既存ファイル由来の警告がありますが、今回の
 新規ファイルには警告はありません。無関係な既存ファイルを一括整形しないでください。
 
-## 8. 次にユーザーが行う動作確認
+## 8. 完了した診断手順
 
-現時点では今回の診断実装をまだコミット・pushしていません。5700X PCで試すには、ユーザーから
-push指示を受けたあと、意図したファイルだけをコミットしてpushし、5700X PCでpullします。
+診断実装は`9256e64 Add ChatGPT UI state diagnostics`でpush済みで、5700X PCでも検証済みです。
 
 5700X PCでの手順:
 
@@ -339,16 +339,16 @@ uv run chatgpt-ui-diagnostic --duration-seconds 180 --include-offscreen
 ログには画面上の会話本文が含まれる可能性があります。空の診断用タスクを使い、共有前に
 ログ内容を確認してください。トークン、個人情報、非公開会話をGitへ入れないでください。
 
-## 9. 動作確認後の実装予定
+## 9. 診断後に実装した構成
 
-診断ログから安定した状態要素を特定できたら、次の実装へ進みます。
+診断ログから安定した状態要素を特定し、次を実装しました。
 
 1. UIA要素を監視する常駐サービスをLAN操作サーバーへ統合
 2. 新しいVRChat同期Bool `VoiceAgentThinking`を追加
-3. `ChatGPTが作業中`かつ`CABLE-Bが無音`のときだけTrueにする
-4. GUIへ検出状態と手動ON/OFFを追加
+3. `ChatGPTが作業中`かつ`CABLE-Bが発話中ではない`ときだけTrueにする
+4. GUIへ検出状態、OSC実値、監視ON/OFFを追加
 5. Lexaへ`考え中…`表示を追加
-6. 他ユーザー視点で表示同期を確認
+6. Expressions Menuへ`考え中テスト`を追加
 
 推奨する表示条件:
 
@@ -366,12 +366,12 @@ ChatGPTが話している最中は「考え中」を隠し、発話終了後も�
 Lexa側では現在のAI試験中表示より`VoiceAgentThinking`を優先し、Falseへ戻ったら元の
 1行・2行・OFF設定へ復帰させるのが安全です。
 
-UIAが検出できない場合の予備手段:
+UIAが検出できない場合の予備手段（未実装）:
 
 - CABLE-A発話終了後、CABLE-Bが一定時間無音なら「考え中」と推定
 - LAN GUIで手動切り替え
 
-UIAによる明示状態を最優先し、音声推定と手動操作をフォールバックにします。
+現時点ではUIAによる明示状態だけを使用します。必要になった場合は音声推定やGUIの手動表示をフォールバックとして追加します。
 
 ## 10. Gitの現在状態
 
@@ -381,24 +381,31 @@ UIAによる明示状態を最優先し、音声推定と手動操作をフォ�
 main
 ```
 
-現在のHEAD:
+実装開始時のHEAD:
 
 ```text
-ad4364d Confirm remote avatar OSC state
+9256e64 Add ChatGPT UI state diagnostics
 ```
 
-`origin/main`とHEADは一致しています。今回のUI診断変更は未コミットです。
+`origin/main`とHEADは一致しています。今回の常駐監視・考え中OSC変更は作業ツリー上で未コミットです。
 
-意図した変更:
+今回の意図したPythonリポジトリ変更:
 
 ```text
-M  pyproject.toml
-M  vrchat_ai_tool/cli.py
-?? docs/chatgpt-ui-diagnostic.md
-?? run_chatgpt_ui_diagnostic.bat
-?? tests/test_chatgpt_ui_diagnostic.py
-?? vrchat_ai_tool/chatgpt_ui_diagnostic.py
-?? ai_context.md
+M  README.md
+M  config/chatgpt_voice.example.toml
+M  docs/architecture.md
+M  docs/chatgpt-ui-diagnostic.md
+M  docs/chatgpt-voice-control.md
+M  tests/test_control_server.py
+M  tests/test_osc_control.py
+M  tests/test_voice_config.py
+M  vrchat_ai_tool/control_server.py
+M  vrchat_ai_tool/osc_control.py
+M  vrchat_ai_tool/voice_config.py
+?? tests/test_chatgpt_ui_state.py
+?? vrchat_ai_tool/chatgpt_ui_state.py
+M  ai_context.md
 ```
 
 ユーザー所有の未追跡ファイルが別にあります。削除、ステージ、コミットしないでください。
@@ -420,12 +427,13 @@ uv run chatgpt-ui-diagnostic --help
 uv run chatgpt-ui-diagnostic --duration-seconds 180
 ```
 
-新規診断コードだけのRuff確認:
+今回変更したコードのRuff確認:
 
 ```powershell
-uv run --with ruff ruff check `
-  vrchat_ai_tool/chatgpt_ui_diagnostic.py `
-  tests/test_chatgpt_ui_diagnostic.py
+uvx ruff check vrchat_ai_tool/chatgpt_ui_state.py `
+  vrchat_ai_tool/voice_config.py vrchat_ai_tool/osc_control.py `
+  vrchat_ai_tool/control_server.py tests/test_chatgpt_ui_state.py `
+  tests/test_voice_config.py tests/test_osc_control.py tests/test_control_server.py
 ```
 
 ## 12. 新しいセッションで最初にすること
@@ -433,7 +441,7 @@ uv run --with ruff ruff check `
 1. この`ai_context.md`を読む
 2. `git status --short --branch`で変更を再確認する
 3. ユーザー所有の未追跡ファイルを触らない
-4. 今回のUI診断が未コミットか、すでにpush済みかを確認する
-5. ユーザーが5700X PCで取得したJSONLログを確認する
-6. ログの安定したUIA要素が分かるまで`VoiceAgentThinking`の自動判定を決め打ちしない
+4. 今回の常駐監視・考え中表示が未コミットか、すでにpush済みかを確認する
+5. Unityプロジェクト側の`VoiceAgentLexaSetup.cs`、考え中テクスチャ、生成結果を確認する
+6. 5700X PCでpull後、操作サーバーのGUIと別アカウント視点で同期を確認する
 7. Unityを直接変更する前に、ほかのセッションがUnityを操作中でないかユーザーへ確認する

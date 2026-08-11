@@ -10,14 +10,16 @@ from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
 from typing import Any
 
+from .chatgpt_ui_state import ChatGptUiStateMonitor, UiActivityState
 from .loop_guard import LoopDetection, LoopGuardService
-from .motion_control import MotionService
+from .motion_control import MotionActivity, MotionService
 from .osc_control import AgentStatus, VRChatOscController
 from .voice_config import (
     ChatGPTVoiceConfig,
     resolve_config_relative,
     save_loop_guard_enabled,
     save_motion_enabled,
+    save_ui_monitor_enabled,
     split_names,
 )
 
@@ -45,6 +47,7 @@ h3{font-size:1rem;margin:16px 0 8px}.wide{grid-column:1/-1}
 <div class="card"><h2>現在の状態</h2><dl>
 <dt>アバター表示</dt><dd id="agentStatus">—</dd><dt>VRChatマイク</dt><dd id="mic">—</dd>
 <dt>ループ監視</dt><dd id="loop">—</dd><dt>CABLE-A / B</dt><dd id="levels">—</dd>
+<dt>ChatGPT状態</dt><dd id="chatgptState">—</dd><dt>考え中表示</dt><dd id="thinking">—</dd>
 <dt>自動モーション</dt><dd id="motion">—</dd><dt>発話レベル</dt><dd id="motionLevel">—</dd>
 <dt>アクセント</dt><dd id="motionGesture">—</dd><dt>発話表情</dt><dd id="motionExpression">—</dd></dl>
 <div id="message"></div></div>
@@ -57,6 +60,10 @@ h3{font-size:1rem;margin:16px 0 8px}.wide{grid-column:1/-1}
 <button class="ok" onclick="setLoopGuard(true)">監視を有効化</button>
 <button class="danger" onclick="setLoopGuard(false)">監視を無効化</button></div>
 <small>設定はサブPCへ保存され、次回起動時にも引き継がれます。無効中も手動ミュートは使えます。</small></div>
+<div class="card"><h2>ChatGPT画面状態監視</h2><div class="grid">
+<button class="ok" onclick="setUiMonitor(true)">監視を有効化</button>
+<button class="danger" onclick="setUiMonitor(false)">監視を無効化</button></div>
+<small>ChatGPTのアクセシビリティUIを読み取り、作業中・Web検索中だけアバターへ「考え中」を表示します。クリックや文字入力は行いません。</small></div>
 <div class="card"><h2>アバター自動モーション</h2><div class="grid">
 <button class="ok" onclick="setMotion(true)">モーションを有効化</button>
 <button class="danger" onclick="setMotion(false)">モーションを停止</button></div></div>
@@ -93,6 +100,7 @@ h3{font-size:1rem;margin:16px 0 8px}.wide{grid-column:1/-1}
 <script>
 const names=['STOPPED','ONLINE','ERROR','MAINTENANCE'];
 const activityNames=['待機中','発話中','収束中'];
+const uiStateNames={idle:'待機中',working:'作業中',searching:'Web検索中'};
 const faceNames=['通常','Open','FingerPoint','Victory','Rock&Roll','Gun','ThumbsUp']; let timer=null;
 const gestureNames=['なし','大きく頷く','左手を胸元へ','右手をお腹へ','両手を胸前へ','髪の毛くるくる','口に指','前傾姿勢','かわいい待機2','うたた寝01'];
 function token(){let value=localStorage.getItem('voiceAgentToken')||'';if(!value){value=sessionStorage.getItem('voiceAgentToken')||'';if(value)localStorage.setItem('voiceAgentToken',value)}return value}
@@ -101,7 +109,7 @@ function forgetToken(){localStorage.removeItem('voiceAgentToken');sessionStorage
 async function request(path,opts={}){opts.headers={...(opts.headers||{}),Authorization:'Bearer '+token(),'Content-Type':'application/json'};
  const response=await fetch(path,opts); const data=await response.json(); if(!response.ok)throw new Error(data.error||response.statusText); return data}
 async function post(path,body={}){try{const d=await request(path,{method:'POST',body:JSON.stringify(body)}); message(d.message||'OK');refresh()}catch(e){message(e.message,true)}}
-function setStatus(value){post('/api/status',{value})} function setLoopGuard(enabled){post('/api/loop/enabled',{enabled})} function setMotion(enabled){post('/api/motion/enabled',{enabled})}
+function setStatus(value){post('/api/status',{value})} function setLoopGuard(enabled){post('/api/loop/enabled',{enabled})} function setMotion(enabled){post('/api/motion/enabled',{enabled})} function setUiMonitor(enabled){post('/api/ui-monitor/enabled',{enabled})}
 function diagnosticActivity(value){post('/api/motion/diagnostic/activity',{value})} function diagnosticGesture(value){post('/api/motion/diagnostic/gesture',{value})} function diagnosticExpression(value){post('/api/motion/diagnostic/expression',{value})}
 function message(value,error=false){const e=document.getElementById('message');e.textContent=value;e.style.color=error?'#ff9cab':'#9dd9ff'}
 function confirmedValue(actual,target,labeler){if(actual===null||actual===undefined)return `未確認（送信目標: ${labeler(target)}）`;if(actual!==target)return `${labeler(actual)} / 未反映→ ${labeler(target)}`;return `${labeler(actual)} ✓`}
@@ -109,6 +117,8 @@ async function refresh(){if(!token())return;try{const d=await request('/api/stat
  const m=d.muted===null?'未確認':(d.muted?'MUTED':'OPEN');document.getElementById('mic').textContent=m;
  document.getElementById('loop').textContent=d.loop.enabled===false?'無効':(d.loop.triggered?`LOOP DETECTED (${d.loop.score}, ${d.loop.delay_ms}ms)`:(d.loop.running?'監視中':'停止中'));
  document.getElementById('levels').textContent=`${d.loop.cable_a_rms} / ${d.loop.cable_b_rms}`;
+ const ui=d.ui_monitor||{};document.getElementById('chatgptState').textContent=ui.enabled===false?'監視無効':(ui.last_error?`エラー: ${ui.last_error}`:(!ui.available?'ChatGPT未検出':`${uiStateNames[ui.state]||ui.state}（${ui.element_count||0}要素）`));
+ document.getElementById('thinking').textContent=confirmedValue(a.thinking,a.thinking_target,v=>v?'考え中 ON':'OFF');
  const enabled=confirmedValue(a.motion_enabled,a.motion_enabled_target,v=>v?'ON':'OFF');const activity=confirmedValue(a.activity,a.activity_target,v=>activityNames[v]||String(v));document.getElementById('motion').textContent=`${activity}${d.motion.diagnostic_running?` / TEST: ${d.motion.diagnostic_label||'手動確認'}`:''} / ${enabled}`;
  const actualEnergy=a.energy===null||a.energy===undefined?'未確認':Number(a.energy).toFixed(2);document.getElementById('motionLevel').textContent=`RMS ${d.motion.input_rms} / ENERGY ${d.motion.energy}（VRChat ${actualEnergy}）`;
  document.getElementById('motionGesture').textContent=confirmedValue(a.gesture,a.gesture_target,v=>`${v} ${gestureNames[v]||'—'}`);
@@ -130,16 +140,35 @@ def load_or_create_token(config: ChatGPTVoiceConfig) -> tuple[str, Path, bool]:
     return token, path, True
 
 
+def should_show_thinking(
+    ui_state: UiActivityState,
+    motion_activity: int,
+) -> bool:
+    """Show work/search state only while ChatGPT Voice is not speaking."""
+    return (
+        ui_state != UiActivityState.IDLE
+        and motion_activity != int(MotionActivity.SPEAKING)
+    )
+
+
 class VoiceControlService:
     def __init__(self, config: ChatGPTVoiceConfig) -> None:
         self.config = config
         self.osc = VRChatOscController(config.osc)
         self.motion = MotionService(config.motion, self.osc)
+        self._ui_state = UiActivityState.IDLE
+        self._thinking_output = False
+        self.ui_monitor = ChatGptUiStateMonitor(
+            config.ui_monitor,
+            self._on_ui_state,
+            self._on_ui_monitor_error,
+            process_names=split_names(config.processes.chatgpt),
+        )
         self.loop_guard = LoopGuardService(
             config,
             self._on_loop,
             self._on_loop_error,
-            on_cable_b_level=self.motion.on_audio_level,
+            on_cable_b_level=self._on_cable_b_level,
             on_cable_b_level_error=self._on_motion_error,
         )
         self._lock = threading.RLock()
@@ -148,13 +177,17 @@ class VoiceControlService:
     def start(self) -> None:
         self.osc.start()
         self.osc.send_status(AgentStatus.STOPPED)
+        self.osc.send_thinking(False)
         self.motion.start()
         self.loop_guard.start()
+        self.ui_monitor.start()
 
     def stop(self) -> None:
+        self.ui_monitor.stop()
         self.loop_guard.stop()
         self.motion.stop()
         try:
+            self.osc.send_thinking(False)
             self.osc.send_status(AgentStatus.STOPPED)
         finally:
             self.osc.stop()
@@ -189,14 +222,43 @@ class VoiceControlService:
             with self._lock:
                 self.last_error = f"{self.last_error}; OSC status failed: {exc}"
 
+    def _on_ui_state(self, state: UiActivityState) -> None:
+        with self._lock:
+            self._ui_state = state
+        self._update_thinking_output()
+
+    def _on_cable_b_level(self, rms: float) -> None:
+        self.motion.on_audio_level(rms)
+        self._update_thinking_output()
+
+    def _update_thinking_output(self) -> None:
+        activity = int(self.motion.snapshot()["activity"])
+        with self._lock:
+            visible = should_show_thinking(self._ui_state, activity)
+            if visible == self._thinking_output:
+                return
+            self._thinking_output = visible
+        self.osc.send_thinking(visible)
+
+    def _on_ui_monitor_error(self, detail: str) -> None:
+        with self._lock:
+            self.last_error = detail
+
     def snapshot(self) -> dict[str, object]:
         with self._lock:
+            motion = self.motion.snapshot()
+            ui_monitor = self.ui_monitor.snapshot()
+            ui_monitor["suppressed_by_speech"] = (
+                ui_monitor["thinking"]
+                and int(motion["activity"]) == int(MotionActivity.SPEAKING)
+            )
             return {
                 "status": int(self.osc.status),
                 "avatar": self.osc.feedback_snapshot(),
                 "muted": self.osc.mute_state,
                 "loop": self.loop_guard.snapshot(),
-                "motion": self.motion.snapshot(),
+                "motion": motion,
+                "ui_monitor": ui_monitor,
                 "last_error": self.last_error,
             }
 
@@ -231,6 +293,17 @@ class VoiceControlService:
     def set_motion_enabled(self, enabled: bool) -> None:
         save_motion_enabled(self.config, enabled)
         self.motion.set_enabled(enabled)
+
+    def set_ui_monitor_enabled(self, enabled: bool) -> None:
+        save_ui_monitor_enabled(self.config, enabled)
+        self.ui_monitor.set_enabled(enabled)
+        if not enabled:
+            with self._lock:
+                self._ui_state = UiActivityState.IDLE
+            self._update_thinking_output()
+        with self._lock:
+            if self.last_error.startswith("ChatGPT UI monitor"):
+                self.last_error = ""
 
     def start_motion_diagnostic_test(self) -> None:
         self.motion.start_diagnostic_test()
@@ -341,6 +414,16 @@ def make_handler(
                         "自動モーションを有効にしました"
                         if enabled
                         else "自動モーションを停止しました"
+                    )
+                elif self.path == "/api/ui-monitor/enabled":
+                    enabled = body["enabled"]
+                    if not isinstance(enabled, bool):
+                        raise TypeError("enabled must be true or false")
+                    service.set_ui_monitor_enabled(enabled)
+                    message = (
+                        "ChatGPT画面状態監視を有効にしました"
+                        if enabled
+                        else "ChatGPT画面状態監視を無効にしました"
                     )
                 elif self.path == "/api/motion/test":
                     service.start_motion_diagnostic_test()

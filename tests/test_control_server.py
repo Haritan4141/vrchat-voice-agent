@@ -9,7 +9,13 @@ import urllib.request
 from http.server import ThreadingHTTPServer
 from pathlib import Path
 
-from vrchat_ai_tool.control_server import CONTROL_HTML, load_or_create_token, make_handler
+from vrchat_ai_tool.chatgpt_ui_state import UiActivityState
+from vrchat_ai_tool.control_server import (
+    CONTROL_HTML,
+    load_or_create_token,
+    make_handler,
+    should_show_thinking,
+)
 from vrchat_ai_tool.voice_config import (
     ChatGPTVoiceConfig,
     VoiceAudioConfig,
@@ -26,6 +32,7 @@ class FakeService:
         self.muted = False
         self.loop_enabled = True
         self.motion_enabled = True
+        self.ui_monitor_enabled = True
         self.diagnostic_calls: list[tuple[str, int | None]] = []
 
     def snapshot(self) -> dict[str, object]:
@@ -44,6 +51,8 @@ class FakeService:
                 "gesture_target": 0,
                 "expression": 0,
                 "expression_target": 0,
+                "thinking": False,
+                "thinking_target": False,
             },
             "muted": self.muted,
             "loop": {"enabled": self.loop_enabled, "running": self.loop_enabled, "triggered": False},
@@ -52,6 +61,16 @@ class FakeService:
                 "activity_name": "IDLE",
                 "input_rms": 0.0,
                 "energy": 0.0,
+            },
+            "ui_monitor": {
+                "enabled": self.ui_monitor_enabled,
+                "running": self.ui_monitor_enabled,
+                "available": True,
+                "state": "idle",
+                "thinking": False,
+                "searching": False,
+                "element_count": 240,
+                "last_error": "",
             },
             "last_error": "",
         }
@@ -74,6 +93,9 @@ class FakeService:
     def set_motion_enabled(self, enabled: bool) -> None:
         self.motion_enabled = enabled
 
+    def set_ui_monitor_enabled(self, enabled: bool) -> None:
+        self.ui_monitor_enabled = enabled
+
     def start_motion_diagnostic_test(self) -> None:
         self.diagnostic_calls.append(("test", None))
 
@@ -91,12 +113,19 @@ class FakeService:
 
 
 class ControlServerTests(unittest.TestCase):
+    def test_thinking_is_hidden_only_while_voice_is_speaking(self) -> None:
+        self.assertFalse(should_show_thinking(UiActivityState.IDLE, 0))
+        self.assertTrue(should_show_thinking(UiActivityState.WORKING, 0))
+        self.assertFalse(should_show_thinking(UiActivityState.SEARCHING, 1))
+        self.assertTrue(should_show_thinking(UiActivityState.SEARCHING, 2))
+
     def test_control_page_persists_token_in_browser(self) -> None:
         self.assertIn("localStorage.setItem('voiceAgentToken'", CONTROL_HTML)
         self.assertIn("sessionStorage.getItem('voiceAgentToken'", CONTROL_HTML)
         self.assertIn("forgetToken()", CONTROL_HTML)
         self.assertIn("/api/loop/enabled", CONTROL_HTML)
         self.assertIn("/api/motion/enabled", CONTROL_HTML)
+        self.assertIn("/api/ui-monitor/enabled", CONTROL_HTML)
         self.assertIn("/api/motion/test", CONTROL_HTML)
         self.assertIn("/api/motion/diagnostic/activity", CONTROL_HTML)
         self.assertIn("/api/motion/diagnostic/gesture", CONTROL_HTML)
@@ -107,6 +136,8 @@ class ControlServerTests(unittest.TestCase):
         self.assertIn("全動作テスト（約49秒）", CONTROL_HTML)
         self.assertIn("アバター自動モーション", CONTROL_HTML)
         self.assertIn("監視を無効化", CONTROL_HTML)
+        self.assertIn("ChatGPT画面状態監視", CONTROL_HTML)
+        self.assertIn("thinking_target", CONTROL_HTML)
 
     def test_token_is_generated_once_and_reused(self) -> None:
         with tempfile.TemporaryDirectory() as directory:
@@ -168,6 +199,17 @@ class ControlServerTests(unittest.TestCase):
                 payload = json.loads(response.read().decode("utf-8"))
             self.assertTrue(payload["ok"])
             self.assertFalse(service.motion_enabled)
+
+            request = urllib.request.Request(
+                base + "/api/ui-monitor/enabled",
+                data=json.dumps({"enabled": False}).encode("utf-8"),
+                method="POST",
+                headers={"Authorization": "Bearer " + "x" * 32, "Content-Type": "application/json"},
+            )
+            with urllib.request.urlopen(request, timeout=2) as response:
+                payload = json.loads(response.read().decode("utf-8"))
+            self.assertTrue(payload["ok"])
+            self.assertFalse(service.ui_monitor_enabled)
 
             request = urllib.request.Request(
                 base + "/api/motion/diagnostic/gesture",

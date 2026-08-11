@@ -41,6 +41,7 @@ class VoiceOscConfig:
     motion_energy_parameter: str = "VoiceAgentEnergy"
     motion_gesture_parameter: str = "VoiceAgentGesture"
     motion_expression_parameter: str = "VoiceAgentExpression"
+    thinking_parameter: str = "VoiceAgentThinking"
     voice_input_mode: str = "toggle"
     mute_confirm_timeout_sec: float = 2.0
     mute_retry_count: int = 2
@@ -97,6 +98,14 @@ class VoiceParsecConfig:
 
 
 @dataclass(slots=True)
+class VoiceUiMonitorConfig:
+    enabled: bool = True
+    interval_sec: float = 0.75
+    release_hold_sec: float = 2.5
+    search_hold_sec: float = 3.0
+
+
+@dataclass(slots=True)
 class ChatGPTVoiceConfig:
     audio: VoiceAudioConfig
     processes: VoiceProcessConfig
@@ -106,6 +115,7 @@ class ChatGPTVoiceConfig:
     parsec: VoiceParsecConfig
     source_path: Path
     motion: VoiceMotionConfig = field(default_factory=VoiceMotionConfig)
+    ui_monitor: VoiceUiMonitorConfig = field(default_factory=VoiceUiMonitorConfig)
 
 
 T = TypeVar("T")
@@ -139,6 +149,7 @@ def load_voice_config(path: Path) -> ChatGPTVoiceConfig:
         "loop_guard",
         "parsec",
         "motion",
+        "ui_monitor",
     }
     unknown_sections = sorted(set(raw) - valid_sections)
     if unknown_sections:
@@ -153,6 +164,7 @@ def load_voice_config(path: Path) -> ChatGPTVoiceConfig:
         parsec=_dataclass_from_table(VoiceParsecConfig, raw.get("parsec", {})),
         source_path=path,
         motion=_dataclass_from_table(VoiceMotionConfig, raw.get("motion", {})),
+        ui_monitor=_dataclass_from_table(VoiceUiMonitorConfig, raw.get("ui_monitor", {})),
     )
 
 
@@ -217,6 +229,12 @@ def save_motion_enabled(config: ChatGPTVoiceConfig, enabled: bool) -> None:
     """Persist the avatar motion switch without rewriting unrelated TOML settings."""
     _save_boolean_setting(config, "motion", "enabled", enabled)
     config.motion.enabled = enabled
+
+
+def save_ui_monitor_enabled(config: ChatGPTVoiceConfig, enabled: bool) -> None:
+    """Persist the ChatGPT UI monitor switch without rewriting unrelated settings."""
+    _save_boolean_setting(config, "ui_monitor", "enabled", enabled)
+    config.ui_monitor.enabled = enabled
 
 
 def split_names(value: str) -> tuple[str, ...]:

@@ -51,6 +51,8 @@ class VRChatOscController:
         self._observed_motion_gesture: int | None = None
         self._motion_expression = 0
         self._observed_motion_expression: int | None = None
+        self._thinking = False
+        self._observed_thinking: bool | None = None
         self._avatar_replay_generation = 0
 
     @property
@@ -97,6 +99,10 @@ class VRChatOscController:
             f"/avatar/parameters/{self.config.motion_expression_parameter}",
             self._on_motion_expression,
         )
+        dispatcher.map(
+            f"/avatar/parameters/{self.config.thinking_parameter}",
+            self._on_thinking,
+        )
         dispatcher.map("/avatar/change", self._on_avatar_change)
         self._server = self._server_factory(
             (self.config.listen_host, self.config.output_port), dispatcher
@@ -137,6 +143,7 @@ class VRChatOscController:
             self._observed_motion_energy = None
             self._observed_motion_gesture = None
             self._observed_motion_expression = None
+            self._observed_thinking = None
             self._avatar_replay_generation += 1
             generation = self._avatar_replay_generation
         threading.Thread(
@@ -159,10 +166,12 @@ class VRChatOscController:
             energy = self._motion_energy
             gesture = self._motion_gesture
             expression = self._motion_expression
+            thinking = self._thinking
         self.send_motion_activity(activity)
         self.send_motion_energy(energy)
         self.send_motion_gesture(gesture)
         self.send_motion_expression(expression)
+        self.send_thinking(thinking)
 
     def _on_status(self, _address: str, value: object) -> None:
         try:
@@ -216,6 +225,11 @@ class VRChatOscController:
             self._observed_motion_expression = expression
             self._condition.notify_all()
 
+    def _on_thinking(self, _address: str, value: object) -> None:
+        with self._condition:
+            self._observed_thinking = bool(value)
+            self._condition.notify_all()
+
     def feedback_snapshot(self) -> dict[str, object]:
         with self._condition:
             return {
@@ -232,6 +246,8 @@ class VRChatOscController:
                 "gesture_target": self._motion_gesture,
                 "expression": self._observed_motion_expression,
                 "expression_target": self._motion_expression,
+                "thinking": self._observed_thinking,
+                "thinking_target": self._thinking,
             }
 
     def send_status(self, status: AgentStatus | int) -> None:
@@ -296,6 +312,11 @@ class VRChatOscController:
         with self._condition:
             self._motion_expression = expression
         self._send_parameter_reliably(self.config.motion_expression_parameter, expression)
+
+    def send_thinking(self, thinking: bool) -> None:
+        with self._condition:
+            self._thinking = bool(thinking)
+        self._send_parameter_reliably(self.config.thinking_parameter, bool(thinking))
 
     def _send_parameter(self, parameter: str, value: object) -> None:
         self._client.send_message(f"/avatar/parameters/{parameter}", value)

@@ -21,6 +21,9 @@ class FakeClient:
         elif address == "/avatar/parameters/VoiceAgentStatus":
             assert self.controller is not None
             self.controller._on_status(address, value)
+        elif address == "/avatar/parameters/VoiceAgentThinking":
+            assert self.controller is not None
+            self.controller._on_thinking(address, value)
 
 
 class OscControlTests(unittest.TestCase):
@@ -66,12 +69,14 @@ class OscControlTests(unittest.TestCase):
         controller.send_motion_energy(0.62)
         controller.send_motion_gesture(4)
         controller.send_motion_expression(3)
+        controller.send_thinking(True)
 
         self.assertEqual(fake.messages.count(("/avatar/parameters/VoiceAgentMotionEnabled", True)), 3)
         self.assertEqual(fake.messages.count(("/avatar/parameters/VoiceAgentActivity", 1)), 3)
         self.assertEqual(fake.messages.count(("/avatar/parameters/VoiceAgentEnergy", 0.62)), 1)
         self.assertEqual(fake.messages.count(("/avatar/parameters/VoiceAgentGesture", 4)), 3)
         self.assertEqual(fake.messages.count(("/avatar/parameters/VoiceAgentExpression", 3)), 3)
+        self.assertEqual(fake.messages.count(("/avatar/parameters/VoiceAgentThinking", True)), 3)
 
     def test_avatar_menu_can_report_motion_toggle(self) -> None:
         fake = FakeClient()
@@ -117,12 +122,25 @@ class OscControlTests(unittest.TestCase):
         controller._on_motion_energy("/avatar/parameters/VoiceAgentEnergy", 0.73)
         controller._on_motion_gesture("/avatar/parameters/VoiceAgentGesture", 6)
         controller._on_motion_expression("/avatar/parameters/VoiceAgentExpression", 4)
+        controller._on_thinking("/avatar/parameters/VoiceAgentThinking", True)
 
         feedback = controller.feedback_snapshot()
         self.assertEqual(feedback["activity"], 1)
         self.assertEqual(feedback["energy"], 0.73)
         self.assertEqual(feedback["gesture"], 6)
         self.assertEqual(feedback["expression"], 4)
+        self.assertTrue(feedback["thinking"])
+
+    def test_thinking_parameter_reports_target_and_feedback(self) -> None:
+        fake = FakeClient()
+        controller = VRChatOscController(VoiceOscConfig(), client_factory=lambda _h, _p: fake)
+        fake.controller = controller
+
+        controller.send_thinking(True)
+
+        feedback = controller.feedback_snapshot()
+        self.assertTrue(feedback["thinking"])
+        self.assertTrue(feedback["thinking_target"])
 
 
 if __name__ == "__main__":

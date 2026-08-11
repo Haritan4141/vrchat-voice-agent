@@ -23,6 +23,7 @@ ChatGPT Voice出力
 - 緊急ミュート: VRChat OSCの`MuteSelf`を確認しながら安全にミュート／解除
 - LAN操作画面: メインPCのブラウザからミュートと状態表示を操作
 - アバター状態: 汎用Intパラメーター`VoiceAgentStatus`へ0〜3を送信
+- 考え中表示: ChatGPTの読み取り専用UI Automation状態とCABLE-Bの無音判定から、同期Bool `VoiceAgentThinking`を自動制御
 
 ## 初回準備
 
