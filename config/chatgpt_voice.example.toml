@@ -80,6 +80,8 @@ speaking_expression_max_sec = 4.0
 [ui_monitor]
 # ChatGPTのアクセシビリティUIを読み取り、処理中だけVoiceAgentThinkingをONにします。
 enabled = true
+# VRChatが前面でも、背面・最小化されたChatGPTの状態要素を読み取ります。
+include_offscreen = true
 interval_sec = 0.75
 # UI再描画による短い消失と、完了直後の表示ちらつきを吸収します。
 release_hold_sec = 2.5

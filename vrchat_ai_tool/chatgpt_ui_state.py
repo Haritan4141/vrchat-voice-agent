@@ -112,7 +112,10 @@ class ChatGptUiStateMonitor:
         self.config = config
         self.on_state = on_state
         self.on_error = on_error
-        self.provider = provider or PywinautoSnapshotProvider(process_names)
+        self.provider = provider or PywinautoSnapshotProvider(
+            process_names,
+            include_offscreen=config.include_offscreen,
+        )
         self.clock = clock
         self.tracker = UiActivityTracker(
             config.release_hold_sec,

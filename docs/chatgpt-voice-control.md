@@ -200,10 +200,15 @@ VoiceAgentThinking = ChatGPT画面が作業中 AND CABLE-Bが発話中ではな�
 ```toml
 [ui_monitor]
 enabled = true
+include_offscreen = true
 interval_sec = 0.75
 release_hold_sec = 2.5
 search_hold_sec = 3.0
 ```
+
+`include_offscreen = true`は、VRChatが前面にある場合やChatGPTを最小化している場合も、ChatGPTのアクセシビリティ要素を監視する設定です。
+
+LAN操作GUIの`考え中表示テスト`を押すと、画面検出とは無関係に`VoiceAgentThinking=true`を送信できます。腰前のLexa表示が`AI試験中`から`考え中…`へ切り替わることを確認し、確認後は`テスト終了・自動へ`を押してください。これで、表示が変わらない原因がChatGPT画面検出側か、OSC／アバター側かを切り分けられます。
 
 Unity側は`Assets/VoiceAgentLexa`の生成スクリプトで、同期Bool `VoiceAgentThinking`と「考え中…」表示を追加します。Expressions Menuの`AI表示 > 考え中テスト`でも単独確認できます。再生成はUnityメニューの`Tools > Voice Agent > Configure Lexa AI Trial Sign`を実行します。通常の1行・2行表示より考え中表示が優先され、OFFになると元の表示へ戻ります。
 

@@ -207,6 +207,8 @@ Assets/VoiceAgentLexa
 
 「考え中…」表示はUnityへ追加済みです。`VoiceAgentThinking=true`の間は通常の1行・2行表示より優先し、falseへ戻ると元の表示へ復帰します。Expressions Menuには`考え中テスト`も追加しています。
 
+Python側のLAN操作GUIにも`考え中表示テスト`と`テスト終了・自動へ`を追加しました。これはUI Automationの判定を迂回して`VoiceAgentThinking`だけを強制切り替えし、OSC／Unity表示との切り分けに使います。常駐監視はVRChatが前面の運用に合わせ、`[ui_monitor].include_offscreen = true`を既定値として背面・最小化時のChatGPT要素も読み取ります。
+
 ### 自動モーション用アセット
 
 ```text

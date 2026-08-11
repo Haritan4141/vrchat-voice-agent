@@ -100,6 +100,7 @@ class VoiceParsecConfig:
 @dataclass(slots=True)
 class VoiceUiMonitorConfig:
     enabled: bool = True
+    include_offscreen: bool = True
     interval_sec: float = 0.75
     release_hold_sec: float = 2.5
     search_hold_sec: float = 3.0

@@ -2,13 +2,19 @@ from __future__ import annotations
 
 import unittest
 
-from vrchat_ai_tool.chatgpt_ui_diagnostic import UiElementRecord, UiScanResult
+from vrchat_ai_tool.chatgpt_ui_diagnostic import (
+    PywinautoSnapshotProvider,
+    UiElementRecord,
+    UiScanResult,
+)
 from vrchat_ai_tool.chatgpt_ui_state import (
+    ChatGptUiStateMonitor,
     UiActivitySignals,
     UiActivityState,
     UiActivityTracker,
     detect_ui_activity,
 )
+from vrchat_ai_tool.voice_config import VoiceUiMonitorConfig
 
 
 def record(
@@ -34,6 +40,15 @@ def record(
 
 
 class ChatGptUiStateTests(unittest.TestCase):
+    def test_monitor_includes_offscreen_elements_when_configured(self) -> None:
+        monitor = ChatGptUiStateMonitor(
+            VoiceUiMonitorConfig(include_offscreen=True),
+            lambda _state: None,
+        )
+
+        self.assertIsInstance(monitor.provider, PywinautoSnapshotProvider)
+        self.assertTrue(monitor.provider.include_offscreen)
+
     def test_activity_pill_detects_unlabelled_work(self) -> None:
         result = UiScanResult(
             process_ids=(1,),
