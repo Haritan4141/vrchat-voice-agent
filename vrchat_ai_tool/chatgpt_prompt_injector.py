@@ -25,6 +25,9 @@ COMPOSER_NAMES = (
     "chatgpt にメッセージ",
     "chatgptにメッセージ",
     "message chatgpt",
+    "work モードで作成",
+    "workモードで作成",
+    "create in work mode",
 )
 NEW_CHAT_NAMES = (
     "新しいチャット",

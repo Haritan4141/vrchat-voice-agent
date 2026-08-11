@@ -169,6 +169,19 @@ class PromptInjectorTests(unittest.TestCase):
         self.assertEqual(target.window_handle, 20)
         self.assertEqual(target.rectangle, (100, 200, 500, 260))
 
+    def test_find_target_accepts_voice_work_mode_composer(self) -> None:
+        target = find_prompt_target(
+            result(
+                record(
+                    "voice-composer",
+                    name="Work モードで作成",
+                    class_name="voice-chat-composer",
+                )
+            )
+        )
+
+        self.assertEqual(target.locator, "voice-composer")
+
     def test_find_target_fails_if_no_or_multiple_composers_are_safe(self) -> None:
         with self.assertRaises(ComposerNotReady):
             find_prompt_target(result(record("text", control_type="Text")))
@@ -453,7 +466,14 @@ class PromptInjectorTests(unittest.TestCase):
             [
                 result(record("old-composer"), new_chat, voice),
                 result(record("new-composer"), voice),
-                result(record("voice-composer"), stop),
+                result(
+                    record(
+                        "voice-composer",
+                        name="Work モードで作成",
+                        class_name="voice-chat-composer",
+                    ),
+                    stop,
+                ),
             ]
         )
         sender = FakeSender()
