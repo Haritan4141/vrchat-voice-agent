@@ -188,9 +188,11 @@ class PywinautoSnapshotProvider:
         process_names: Iterable[str] = DEFAULT_PROCESS_NAMES,
         *,
         include_offscreen: bool = False,
+        name_max_length: int = 240,
     ) -> None:
         self.process_names = {name.casefold() for name in process_names if name.strip()}
         self.include_offscreen = include_offscreen
+        self.name_max_length = max(80, int(name_max_length))
 
     def _process_ids(self) -> tuple[int, ...]:
         result: list[int] = []
@@ -294,7 +296,7 @@ class PywinautoSnapshotProvider:
                 )
                 name = normalize_text(
                     _safe_attr(info, "CachedName", ""),
-                    240,
+                    self.name_max_length,
                 )
                 automation_id = normalize_text(
                     _safe_attr(info, "CachedAutomationId", ""), 160

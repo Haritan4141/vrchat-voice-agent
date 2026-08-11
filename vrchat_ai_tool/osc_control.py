@@ -412,6 +412,21 @@ class VRChatOscController:
         address = f"/avatar/parameters/{self.config.status_parameter}"
         self._send_message_reliably(address, int(status))
 
+    def send_chatbox(self, text: str, *, notify: bool = False) -> None:
+        """Send one completed or partial AI caption to VRChat's native chatbox."""
+        value = str(text)
+        if not value:
+            return
+        if len(value) > 144:
+            raise ValueError("VRChat chatbox text must not exceed 144 characters")
+        # Chatbox updates are deliberately sent once. Repeating a parameter packet
+        # is harmless, but repeating chatbox input can surface duplicate captions.
+        self._client.send_message("/chatbox/input", [value, True, bool(notify)])
+
+    def send_chatbox_typing(self, typing: bool) -> None:
+        """Show or clear VRChat's chatbox typing indicator."""
+        self._client.send_message("/chatbox/typing", bool(typing))
+
     def set_status_confirmed(self, status: AgentStatus | int) -> AgentStatus:
         status = AgentStatus(int(status))
         if self._server is None:

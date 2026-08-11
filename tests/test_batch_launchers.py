@@ -31,6 +31,13 @@ class BatchLauncherTests(unittest.TestCase):
         )
         self.assertIn('call "%~dp0..\\launch_voice_control.bat"', content)
 
+    def test_control_launcher_installs_caption_stt_extra(self) -> None:
+        content = (self.repository_root / "launch_voice_control.bat").read_text(
+            encoding="ascii"
+        )
+        self.assertIn("sync --extra stt --quiet", content)
+        self.assertIn("run --extra stt vrchat-voice-control", content)
+
 
 if __name__ == "__main__":
     unittest.main()

@@ -7,6 +7,7 @@ from pathlib import Path
 from vrchat_ai_tool.voice_config import (
     load_voice_config,
     resolve_config_relative,
+    save_caption_mode,
     save_loop_guard_enabled,
     save_motion_enabled,
     save_ui_monitor_enabled,
@@ -39,6 +40,8 @@ class VoiceConfigTests(unittest.TestCase):
             self.assertTrue(config.ui_monitor.enabled)
             self.assertTrue(config.ui_monitor.include_offscreen)
             self.assertEqual(config.ui_monitor.release_hold_sec, 2.5)
+            self.assertEqual(config.captions.mode, "off")
+            self.assertEqual(config.captions.stt_model, "small")
 
     def test_loop_guard_switch_is_persisted_without_losing_other_settings(self) -> None:
         with tempfile.TemporaryDirectory() as directory:
@@ -92,6 +95,19 @@ class VoiceConfigTests(unittest.TestCase):
             self.assertIn("[ui_monitor]", saved)
             self.assertIn("enabled = false", saved)
             self.assertFalse(load_voice_config(path).ui_monitor.enabled)
+
+    def test_caption_mode_is_persisted_in_its_own_section(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            path = Path(directory) / "voice.toml"
+            path.write_text("[osc]\ntarget_host = \"127.0.0.1\"\n", encoding="utf-8")
+            config = load_voice_config(path)
+
+            save_caption_mode(config, "stt")
+
+            saved = path.read_text(encoding="utf-8")
+            self.assertIn("[captions]", saved)
+            self.assertIn('mode = "stt"', saved)
+            self.assertEqual(load_voice_config(path).captions.mode, "stt")
 
 
 if __name__ == "__main__":

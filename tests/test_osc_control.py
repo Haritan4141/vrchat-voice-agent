@@ -67,9 +67,11 @@ class OscControlTests(unittest.TestCase):
         fake.controller = controller
         controller._server = object()
 
-        with patch.object(controller, "_discover_current_avatar_id_from_log", return_value=None):
-            with self.assertRaisesRegex(RuntimeError, "avatar ID"):
-                controller.reload_current_avatar()
+        with (
+            patch.object(controller, "_discover_current_avatar_id_from_log", return_value=None),
+            self.assertRaisesRegex(RuntimeError, "avatar ID"),
+        ):
+            controller.reload_current_avatar()
 
     def test_current_avatar_id_is_discovered_from_vrchat_log_and_probe_schema(self) -> None:
         avatar_id = "avtr_12345678-1234-1234-1234-123456789abc"
@@ -116,6 +118,31 @@ class OscControlTests(unittest.TestCase):
             fake.messages[-3:],
             [("/avatar/parameters/VoiceAgentStatus", 3)] * 3,
         )
+
+    def test_chatbox_caption_is_sent_once_with_typing_state(self) -> None:
+        fake = FakeClient()
+        controller = VRChatOscController(VoiceOscConfig(), client_factory=lambda _h, _p: fake)
+
+        controller.send_chatbox_typing(True)
+        controller.send_chatbox("AI: こんにちは")
+        controller.send_chatbox_typing(False)
+
+        self.assertEqual(
+            fake.messages,
+            [
+                ("/chatbox/typing", True),
+                ("/chatbox/input", ["AI: こんにちは", True, False]),
+                ("/chatbox/typing", False),
+            ],
+        )
+
+    def test_chatbox_rejects_text_beyond_vrchat_limit(self) -> None:
+        controller = VRChatOscController(
+            VoiceOscConfig(), client_factory=lambda _h, _p: FakeClient()
+        )
+
+        with self.assertRaisesRegex(ValueError, "144"):
+            controller.send_chatbox("x" * 145)
 
     def test_status_change_is_confirmed_by_vrchat_feedback(self) -> None:
         fake = FakeClient()

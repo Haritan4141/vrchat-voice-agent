@@ -6,7 +6,7 @@
 
 ```powershell
 Copy-Item config/chatgpt_voice.example.toml config/chatgpt_voice.toml
-uv sync
+uv sync --extra stt
 ```
 
 VRChatのAction MenuでOSCを有効にしてください。標準ポートのままなら、このツールはVRChatへUDP 9000で送信し、UDP 9001で状態を受信します。
@@ -40,7 +40,7 @@ uv run chatgpt-voice-doctor --config config/chatgpt_voice.toml --live-seconds 8
 コマンドから直接起動する場合は次を実行します。
 
 ```powershell
-uv run vrchat-voice-control --config config/chatgpt_voice.toml
+uv run --extra stt vrchat-voice-control --config config/chatgpt_voice.toml
 ```
 
 本番用プロセスにはChatGPT画面状態監視が内蔵されています。`run_chatgpt_ui_diagnostic.bat`はUI変化をJSONLへ記録する3分間の調査専用ツールであり、本番運用中に併用する必要はありません。
@@ -72,6 +72,7 @@ IPが複数ある場合はカンマ区切りです。`127.0.0.1`は常に許可�
 - ループ警報の手動リセット
 - 自己ループ監視の有効化／無効化（設定はサブPCへ保存）
 - ChatGPT画面状態監視の有効化／無効化（設定はサブPCへ保存）
+- AI発話字幕のOFF／UIA／STT切り替えとVRChatチャットボックス表示テスト（設定はサブPCへ保存）
 - アバター自動モーションの有効化／停止（設定はサブPCへ保存）
 - 現在アバターのOSC再読み込み、専用OSCプローブによる同期確認、安全な初期状態への復帰後にONLINEで開始
 - `VoiceAgentStatus`の0〜3への切り替え
@@ -251,7 +252,41 @@ Synced: true
 
 Unity側を変更した後はアバターの再アップロードが必要です。
 
-## 8. 終了
+## 8. AI発話字幕
+
+LAN操作GUIの`AI発話字幕（VRChatチャットボックス）`から、次の3方式を即時に切り替えられます。選択は`config/chatgpt_voice.toml`へ保存され、次回起動時にも引き継がれます。
+
+- `OFF`: 字幕を送信しない
+- `UIA`: ChatGPTデスクトップアプリの読み取り専用UI Automationから、発話中に追加・更新された最新回答を抽出する
+- `STT`: CABLE-Bへ出たAI音声だけをfaster-whisperでローカル文字起こしする
+
+どちらもVRChatの標準OSC `/chatbox/input`へ最大144文字で送ります。長い回答は先頭へ`…`を付けて最新側を表示し、初期設定では`AI: `を付けます。`/chatbox/typing`もAI発話中だけONになります。チャットボックス表示はアバター改変を使わないため、この機能だけのための再アップロードは不要です。
+
+UIAは高速で音声認識誤りがありませんが、ChatGPTアプリ更新後にアクセシビリティ構造が変わると抽出できない場合があります。履歴本文を誤送信しないよう、回答開始前のUIを基準に新規・更新テキストだけを候補にします。GUIの`最新字幕`と`エラー`を見ながら実機で確認してください。
+
+STTは画面構造に依存しません。初めてSTTへ切り替えたときだけ`small`モデルを取得して読み込むため、`字幕STT`が`loading`から`ready`になるまで待ちます。既定はCPU用`int8`です。音声は発話単位の一時WAVへ変換して文字起こし後すぐ削除し、会話ログとして保存しません。OpenAI API、Ollama、VOICEVOX、旧ローカル応答ランタイムは起動しません。
+
+```toml
+[captions]
+mode = "off"
+prefix = "AI: "
+max_chars = 144
+min_send_interval_sec = 1.5
+stt_model = "small"
+stt_device = "cpu"
+stt_compute_type = "int8"
+stt_language = "ja"
+```
+
+初回の比較テストは次の順番で行います。
+
+1. VRChatのOSCとチャットボックス表示を有効にし、GUIの`字幕表示テスト`で`AI: 字幕表示テストです`が見えることを確認する
+2. `UIA`へ切り替え、ChatGPT Voiceへ短い回答を依頼し、GUIの`最新字幕`とVRChat表示を確認する
+3. `STT`へ切り替え、`字幕STT=ready`を待って同じ依頼を試す
+4. 別アカウントからもチャットボックスが見えるか確認する
+5. 採用する方式を選ぶか、試験後に`OFF`へ戻す
+
+## 9. 終了
 
 サブPCの操作サーバーで`Ctrl+C`を押すと、終了前に`VoiceAgentStatus=0`を送ります。異常終了時は送れない場合があるため、操作画面には手動のSTOPPEDボタンも用意しています。
 

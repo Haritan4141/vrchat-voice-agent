@@ -5,11 +5,11 @@
 ```text
 ChatGPT Desktop Voice ── 会話生成・音声認識・音声出力
 Windows + VB-CABLE   ── A/Bの音声経路
-vrchat-voice-agent   ── 診断・監視・安全停止・UI状態読取・OSC・LAN操作
+vrchat-voice-agent   ── 診断・監視・安全停止・UI状態読取・任意の字幕STT・OSC・LAN操作
 VRChat Avatar        ── VoiceAgentStatus / VoiceAgentThinkingの表示・VoiceAgentOscProbeの往復確認
 ```
 
-PythonサービスはChatGPTの画面をWindows UI Automationで読み取りますが、クリック、文字入力、設定変更、会話生成は行いません。旧ローカルSTT/LLM/TTSも起動しません。
+PythonサービスはChatGPTの画面をWindows UI Automationで読み取りますが、クリック、文字入力、設定変更、会話生成は行いません。字幕をSTTへ切り替えた場合だけCABLE-Bをローカル文字起こししますが、旧ローカルLLM/TTSは起動しません。
 
 ## 制御経路
 
@@ -20,6 +20,7 @@ PythonサービスはChatGPTの画面をWindows UI Automationで読み取りま�
       ├─ UDP/9000 → VRChat /input/Voice
       ├─ UDP/9000 → /avatar/parameters/VoiceAgentStatus
       ├─ UDP/9000 → /avatar/parameters/VoiceAgentThinking
+      ├─ UDP/9000 → /chatbox/input / /chatbox/typing
       ├─ UDP/9000 ↔ /avatar/parameters/VoiceAgentOscProbe
       └─ UDP/9001 ← VRChat /avatar/parameters/MuteSelf
 ```
@@ -43,3 +44,7 @@ CABLE-AとCABLE-Bを同時に録音し、短時間ごとのRMS包絡を作りま
 ChatGPTのアクセシビリティツリーに現れる作業中ステータスバーを定期的に読み取り、Web検索中の文言を補助信号にします。過去の会話本文や検索ボタンだけでは作業中と判定しません。短いUI再描画による消失は2.5〜3秒のホールドで吸収します。
 
 UIが作業中でもCABLE-Bが発話中なら`VoiceAgentThinking=false`とし、発話が止まった時だけ`true`にします。Lexa表示では考え中が通常のAI試験中表示より優先され、解除後は元の1行・2行・OFF設定へ戻ります。
+
+## AI発話字幕
+
+UIA方式は考え中表示と同じアクセシビリティスキャンを共有し、CABLE-Bの発話開始前に取得した待機時スナップショットとの差分から最新回答候補を抽出します。STT方式はLoopGuardがすでに取得しているCABLE-B PCMを別ワーカーへ渡し、発話区間ごとにfaster-whisperで処理します。どちらも字幕出力だけをOSCチャットボックスへ送り、応答生成経路やVRChatマイク経路は変更しません。

@@ -22,7 +22,7 @@ dependencies = [
 
 [project.optional-dependencies]
 stt = [
-  "faster-whisper",
+  "faster-whisper>=1.2,<2",
 ]
 
 [project.scripts]

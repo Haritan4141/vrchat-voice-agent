@@ -473,3 +473,14 @@ uvx ruff check vrchat_ai_tool/chatgpt_ui_state.py `
 - `run_chatgpt_ui_diagnostic.bat`は180秒の調査ログ取得専用で、本番では不要。
 - UI監視はスキャンごとにChatGPTのPIDとトップレベルウィンドウを再探索するため、チャット／タスクやVoiceセッションの切り替えでは通常再起動不要。ChatGPTアプリ自体の再起動後も自動再検出する。
 - 普段使う`apply_voice_prompt.bat`と`run_chatgpt_voice_production.bat`は`controls`フォルダーへ配置。内部用の`launch_voice_control.bat`はリポジトリ直下へ戻し、本番用バッチから親ディレクトリ経由で呼び出す。
+
+## 15. 2026-08-12 AI発話字幕（UIA / STT）
+
+- VRChat標準OSCチャットボックスへAI発話を表示する実験機能を追加。
+- GUIから`OFF / UIA / STT`を切り替え、選択を`[captions].mode`へ保存する。
+- UIA方式は既存のChatGPT画面スキャンを共有し、発話開始前の待機スナップショットとの差分だけを候補にする。
+- STT方式は自己ループ監視が取得済みのCABLE-B PCMを字幕専用faster-whisperワーカーへ分岐する。Ollama、VOICEVOX、OpenAI APIは使わない。
+- VRChatへは`/chatbox/input`（最大144文字）と`/chatbox/typing`を送る。アバター変更や再アップロードは不要。
+- 本番用`launch_voice_control.bat`は`uv sync --extra stt`で字幕STT依存関係も準備する。STT初回選択時は`small`モデル取得後、GUIの状態が`ready`になるまで待つ。
+- 音声はメモリと文字起こし用一時WAVだけで扱い、一時WAVは処理後削除する。
+- ユーザー所有の`5700X_PC/`と`config/settings.toml`は変更・コミットしない。

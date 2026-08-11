@@ -125,6 +125,22 @@ class LoopGuardServiceTests(unittest.TestCase):
 
         self.assertEqual(errors, ["OSC unavailable"])
 
+    def test_caption_pcm_callback_receives_audio_and_is_isolated(self) -> None:
+        received: list[tuple[bytes, float]] = []
+        errors: list[str] = []
+        service = LoopGuardService(
+            self.make_config(),
+            lambda _detection: None,
+            lambda _detail: None,
+            on_cable_b_pcm=lambda pcm, rms: received.append((pcm, rms)),
+            on_cable_b_pcm_error=errors.append,
+        )
+
+        service._publish_cable_b_pcm(b"\x01\x00", 12.5)
+
+        self.assertEqual(received, [(b"\x01\x00", 12.5)])
+        self.assertEqual(errors, [])
+
 
 if __name__ == "__main__":
     unittest.main()

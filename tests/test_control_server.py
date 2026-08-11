@@ -37,6 +37,8 @@ class FakeService:
         self.motion_enabled = True
         self.ui_monitor_enabled = True
         self.thinking_test_enabled = False
+        self.caption_mode = "off"
+        self.caption_tests = 0
         self.preflight_started = False
         self.diagnostic_calls: list[tuple[str, int | None]] = []
 
@@ -80,6 +82,17 @@ class FakeService:
                 "last_error": "",
                 "test_override": self.thinking_test_enabled,
             },
+            "captions": {
+                "mode": self.caption_mode,
+                "running": True,
+                "speaking": False,
+                "typing": False,
+                "last_text": "",
+                "last_source": "",
+                "last_error": "",
+                "send_count": self.caption_tests,
+                "stt_state": "not_loaded",
+            },
             "osc": {"target": "127.0.0.1:9000", "listen": "127.0.0.1:9001"},
             "preflight": {
                 "state": "ready" if self.preflight_started else "not_run",
@@ -121,6 +134,12 @@ class FakeService:
 
     def set_thinking_test(self, enabled: bool) -> None:
         self.thinking_test_enabled = enabled
+
+    def set_caption_mode(self, mode: str) -> None:
+        self.caption_mode = mode
+
+    def send_caption_test(self) -> None:
+        self.caption_tests += 1
 
     def start_motion_diagnostic_test(self) -> None:
         self.diagnostic_calls.append(("test", None))
@@ -381,6 +400,9 @@ class ControlServerTests(unittest.TestCase):
         self.assertIn("/api/motion/enabled", CONTROL_HTML)
         self.assertIn("/api/ui-monitor/enabled", CONTROL_HTML)
         self.assertIn("/api/thinking/test", CONTROL_HTML)
+        self.assertIn("/api/captions/mode", CONTROL_HTML)
+        self.assertIn("/api/captions/test", CONTROL_HTML)
+        self.assertIn("AI発話字幕（VRChatチャットボックス）", CONTROL_HTML)
         self.assertIn("/api/motion/test", CONTROL_HTML)
         self.assertIn("/api/motion/diagnostic/activity", CONTROL_HTML)
         self.assertIn("/api/motion/diagnostic/gesture", CONTROL_HTML)
@@ -481,6 +503,28 @@ class ControlServerTests(unittest.TestCase):
                 payload = json.loads(response.read().decode("utf-8"))
             self.assertTrue(payload["ok"])
             self.assertTrue(service.thinking_test_enabled)
+
+            request = urllib.request.Request(
+                base + "/api/captions/mode",
+                data=json.dumps({"mode": "uia"}).encode("utf-8"),
+                method="POST",
+                headers={"Authorization": "Bearer " + "x" * 32, "Content-Type": "application/json"},
+            )
+            with urllib.request.urlopen(request, timeout=2) as response:
+                payload = json.loads(response.read().decode("utf-8"))
+            self.assertTrue(payload["ok"])
+            self.assertEqual(service.caption_mode, "uia")
+
+            request = urllib.request.Request(
+                base + "/api/captions/test",
+                data=b"{}",
+                method="POST",
+                headers={"Authorization": "Bearer " + "x" * 32, "Content-Type": "application/json"},
+            )
+            with urllib.request.urlopen(request, timeout=2) as response:
+                payload = json.loads(response.read().decode("utf-8"))
+            self.assertTrue(payload["ok"])
+            self.assertEqual(service.caption_tests, 1)
 
             request = urllib.request.Request(
                 base + "/api/preflight/start",

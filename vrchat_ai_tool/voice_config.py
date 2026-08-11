@@ -110,6 +110,29 @@ class VoiceUiMonitorConfig:
 
 
 @dataclass(slots=True)
+class VoiceCaptionConfig:
+    # off: no chatbox captions, uia: ChatGPT accessibility text, stt: CABLE-B STT
+    mode: str = "off"
+    prefix: str = "AI: "
+    max_chars: int = 144
+    min_send_interval_sec: float = 1.5
+    uia_post_speech_grace_sec: float = 2.5
+    stt_model: str = "small"
+    stt_device: str = "cpu"
+    stt_compute_type: str = "int8"
+    stt_language: str = "ja"
+    stt_beam_size: int = 1
+    stt_vad_filter: bool = True
+    stt_vad_min_silence_ms: int = 350
+    stt_partial_interval_sec: float = 2.5
+    stt_speech_on_rms: float = 350.0
+    stt_speech_off_rms: float = 180.0
+    stt_end_silence_ms: int = 700
+    stt_min_audio_ms: int = 600
+    stt_max_utterance_ms: int = 30000
+
+
+@dataclass(slots=True)
 class ChatGPTVoiceConfig:
     audio: VoiceAudioConfig
     processes: VoiceProcessConfig
@@ -120,6 +143,7 @@ class ChatGPTVoiceConfig:
     source_path: Path
     motion: VoiceMotionConfig = field(default_factory=VoiceMotionConfig)
     ui_monitor: VoiceUiMonitorConfig = field(default_factory=VoiceUiMonitorConfig)
+    captions: VoiceCaptionConfig = field(default_factory=VoiceCaptionConfig)
 
 
 T = TypeVar("T")
@@ -154,6 +178,7 @@ def load_voice_config(path: Path) -> ChatGPTVoiceConfig:
         "parsec",
         "motion",
         "ui_monitor",
+        "captions",
     }
     unknown_sections = sorted(set(raw) - valid_sections)
     if unknown_sections:
@@ -169,6 +194,7 @@ def load_voice_config(path: Path) -> ChatGPTVoiceConfig:
         source_path=path,
         motion=_dataclass_from_table(VoiceMotionConfig, raw.get("motion", {})),
         ui_monitor=_dataclass_from_table(VoiceUiMonitorConfig, raw.get("ui_monitor", {})),
+        captions=_dataclass_from_table(VoiceCaptionConfig, raw.get("captions", {})),
     )
 
 
@@ -223,6 +249,52 @@ def _save_boolean_setting(
     temporary.replace(path)
 
 
+def _save_string_setting(
+    config: ChatGPTVoiceConfig,
+    section: str,
+    key: str,
+    value: str,
+) -> None:
+    """Persist one simple string while preserving comments and unrelated TOML."""
+    if any(character in value for character in ('"', "\r", "\n")):
+        raise ValueError(f"unsupported characters in {section}.{key}")
+    path = config.source_path
+    text = path.read_text(encoding="utf-8")
+    newline = "\r\n" if "\r\n" in text else "\n"
+    lines = text.splitlines()
+    section_start: int | None = None
+    section_end = len(lines)
+
+    for index, line in enumerate(lines):
+        stripped = line.strip()
+        if stripped == f"[{section}]":
+            section_start = index
+            continue
+        if section_start is not None and stripped.startswith("[") and stripped.endswith("]"):
+            section_end = index
+            break
+
+    encoded = f'"{value}"'
+    if section_start is None:
+        if lines and lines[-1].strip():
+            lines.append("")
+        lines.extend((f"[{section}]", f"{key} = {encoded}"))
+    else:
+        for index in range(section_start + 1, section_end):
+            candidate = lines[index].lstrip()
+            if candidate.startswith(key) and candidate[len(key) :].lstrip().startswith("="):
+                indent = lines[index][: len(lines[index]) - len(candidate)]
+                lines[index] = f"{indent}{key} = {encoded}"
+                break
+        else:
+            lines.insert(section_start + 1, f"{key} = {encoded}")
+
+    updated = newline.join(lines) + newline
+    temporary = path.with_name(path.name + ".tmp")
+    temporary.write_text(updated, encoding="utf-8", newline="")
+    temporary.replace(path)
+
+
 def save_loop_guard_enabled(config: ChatGPTVoiceConfig, enabled: bool) -> None:
     """Persist the loop guard switch without rewriting unrelated TOML settings."""
     _save_boolean_setting(config, "loop_guard", "enabled", enabled)
@@ -239,6 +311,15 @@ def save_ui_monitor_enabled(config: ChatGPTVoiceConfig, enabled: bool) -> None:
     """Persist the ChatGPT UI monitor switch without rewriting unrelated settings."""
     _save_boolean_setting(config, "ui_monitor", "enabled", enabled)
     config.ui_monitor.enabled = enabled
+
+
+def save_caption_mode(config: ChatGPTVoiceConfig, mode: str) -> None:
+    """Persist the selected caption source without rewriting unrelated settings."""
+    normalized = mode.strip().casefold()
+    if normalized not in {"off", "uia", "stt"}:
+        raise ValueError("caption mode must be off, uia, or stt")
+    _save_string_setting(config, "captions", "mode", normalized)
+    config.captions.mode = normalized
 
 
 def split_names(value: str) -> tuple[str, ...]:

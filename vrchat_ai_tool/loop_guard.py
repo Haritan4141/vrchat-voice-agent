@@ -170,6 +170,8 @@ class LoopGuardService:
         on_error: Callable[[str], None],
         on_cable_b_level: Callable[[float], None] | None = None,
         on_cable_b_level_error: Callable[[str], None] | None = None,
+        on_cable_b_pcm: Callable[[bytes, float], None] | None = None,
+        on_cable_b_pcm_error: Callable[[str], None] | None = None,
     ) -> None:
         self.config = config
         self.detector = LoopDetector(config.loop_guard, config.audio.sample_rate)
@@ -177,12 +179,15 @@ class LoopGuardService:
         self.on_error = on_error
         self.on_cable_b_level = on_cable_b_level
         self.on_cable_b_level_error = on_cable_b_level_error
+        self.on_cable_b_pcm = on_cable_b_pcm
+        self.on_cable_b_pcm_error = on_cable_b_pcm_error
         self._stop = threading.Event()
         self._thread: threading.Thread | None = None
         self._lock = threading.Lock()
         self._last_a_rms = 0.0
         self._last_b_rms = 0.0
         self._cable_b_callback_failed = False
+        self._cable_b_pcm_callback_failed = False
 
     @property
     def running(self) -> bool:
@@ -258,6 +263,7 @@ class LoopGuardService:
                         detection = self.detector.last
                     cable_b_rms = self._last_b_rms
                 self._publish_cable_b_level(cable_b_rms)
+                self._publish_cable_b_pcm(b_pcm, cable_b_rms)
                 if detection.triggered and not was_triggered:
                     was_triggered = True
                     self.on_trigger(detection)
@@ -283,3 +289,18 @@ class LoopGuardService:
             self._cable_b_callback_failed = True
             if self.on_cable_b_level_error is not None:
                 self.on_cable_b_level_error(str(exc))
+
+    def _publish_cable_b_pcm(self, pcm: bytes, rms: float) -> None:
+        """Feed optional captioning without allowing it to stop loop protection."""
+        callback = self.on_cable_b_pcm
+        if callback is None:
+            return
+        try:
+            callback(pcm, rms)
+            self._cable_b_pcm_callback_failed = False
+        except Exception as exc:  # noqa: BLE001 - isolate optional caption output failures
+            if self._cable_b_pcm_callback_failed:
+                return
+            self._cable_b_pcm_callback_failed = True
+            if self.on_cable_b_pcm_error is not None:
+                self.on_cable_b_pcm_error(str(exc))

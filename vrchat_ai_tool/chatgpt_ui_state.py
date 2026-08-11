@@ -129,6 +129,7 @@ class ChatGptUiStateMonitor:
         config: VoiceUiMonitorConfig,
         on_state: Callable[[UiActivityState], None],
         on_error: Callable[[str], None] | None = None,
+        on_scan: Callable[[UiScanResult], None] | None = None,
         *,
         process_names: Iterable[str] = DEFAULT_PROCESS_NAMES,
         provider: SnapshotProvider | None = None,
@@ -137,9 +138,14 @@ class ChatGptUiStateMonitor:
         self.config = config
         self.on_state = on_state
         self.on_error = on_error
+        self.on_scan = on_scan
         self.provider = provider or PywinautoSnapshotProvider(
             process_names,
             include_offscreen=config.include_offscreen,
+            # Production captions need the newest response beyond the diagnostic
+            # logger's deliberately short 240-character preview. This value is
+            # held in memory only and is never written by the state monitor.
+            name_max_length=4096,
         )
         self.clock = clock
         self.tracker = UiActivityTracker(
@@ -251,7 +257,14 @@ class ChatGptUiStateMonitor:
                     self._element_count = len(result.elements)
                     self._last_error = " | ".join(result.errors)
                     self._last_scan_at = now
+                # Publish the activity state first so caption extraction can freeze
+                # the last genuinely idle snapshot before inspecting working text.
                 self._publish_state(next_state)
+                if self.on_scan is not None:
+                    try:
+                        self.on_scan(result)
+                    except Exception as exc:  # noqa: BLE001 - optional caption output
+                        self._report_error(f"ChatGPT UI scan output failed: {exc}")
             except Exception as exc:  # noqa: BLE001 - COM exposes several exception classes
                 with self._lock:
                     self._available = False

@@ -1,6 +1,6 @@
 # VRChat Voice Agent
 
-VRChatの音声とChatGPTデスクトップアプリのVoiceを、2本のVB-CABLEで接続するための補助ツールです。会話そのものはChatGPT Voiceが担当し、このPythonツールは診断、安全停止、VRChat OSC、メインPCからの操作だけを担当します。
+VRChatの音声とChatGPTデスクトップアプリのVoiceを、2本のVB-CABLEで接続するための補助ツールです。会話そのものはChatGPT Voiceが担当し、このPythonツールは診断、安全停止、VRChat OSC、メインPCからの操作、任意のAI発話字幕だけを担当します。
 
 ## 確定している音声経路
 
@@ -25,13 +25,14 @@ ChatGPT Voice出力
 - 開始前OSC同期: 現在のアバターをOSCで再読み込みし、`VoiceAgentOscProbe`のOFF→ON→OFF往復と初期状態を確認してからONLINEへ移行
 - アバター状態: 汎用Intパラメーター`VoiceAgentStatus`へ0〜3を送信
 - 考え中表示: ChatGPTの読み取り専用UI Automation状態とCABLE-Bの無音判定から、同期Bool `VoiceAgentThinking`を自動制御
+- AI発話字幕: UI AutomationまたはCABLE-BのローカルSTTを選び、VRChat標準チャットボックスへ送信
 - キャラクター指示: GPT Live開始後に`system_prompt.txt`を安全に送信し、必要時に再適用
 
 ## 初回準備
 
 ```powershell
 Copy-Item config/chatgpt_voice.example.toml config/chatgpt_voice.toml
-uv sync
+uv sync --extra stt
 uv run chatgpt-voice-doctor --config config/chatgpt_voice.toml
 ```
 
@@ -50,7 +51,7 @@ uv run chatgpt-voice-doctor --config config/chatgpt_voice.toml --live-seconds 8
 コマンドから直接起動する場合:
 
 ```powershell
-uv run vrchat-voice-control --config config/chatgpt_voice.toml
+uv run --extra stt vrchat-voice-control --config config/chatgpt_voice.toml
 ```
 
 終了する場合は、サブPC側のコンソールで`Ctrl+C`を押します。`run_chatgpt_ui_diagnostic.bat`は3分間の調査ログを取得する診断専用であり、本番運用では起動不要です。
@@ -70,7 +71,7 @@ ChatGPT Voiceと併用中は、旧ローカルAIランタイムを起動しな�
 python -m vrchat_ai_tool run
 ```
 
-このコマンドはfaster-whisper、Ollama、VOICEVOXによる別の応答系です。Doctorと操作サーバーはこれらを起動しません。
+このコマンドはfaster-whisper、Ollama、VOICEVOXによる別の応答系です。本番用操作サーバーはOllamaやVOICEVOXを起動しません。字幕を`STT`へ切り替えた場合だけ、応答生成を行わない字幕専用のfaster-whisperを使用します。
 
 ## 旧ローカルAI機能
 
