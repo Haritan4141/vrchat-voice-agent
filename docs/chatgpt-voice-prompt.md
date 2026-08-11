@@ -7,12 +7,13 @@
 ## 通常の使い方
 
 1. `apply_voice_prompt.bat`をダブルクリックします。
-2. ChatGPTデスクトップアプリで、新しいGPT Live音声タスクを開始します。
-3. 音声タスクが表示されたら、黒い画面へ戻って何かキーを押します。
-4. `Prompt sent`と表示され、GPT Liveが「準備できたよ」と答えれば適用完了です。
-5. 「名前は？」と聞き、「ラズリだよ」と答えることを確認します。
+2. ツールがChatGPTの「新しいチャット」を開き、GPT Live開始ボタンを押します。
+3. `Prompt sent`と表示され、GPT Liveが「準備できたよ」と答えれば適用完了です。
+4. 「名前は？」と聞き、「ラズリだよ」と答えることを確認します。
 
-この操作はVoiceを開始する機能ではありません。必ず先に新しいGPT Live音声タスクを開始してください。通常のテキストタスクが表示された状態で実行すると、そのタスクへ送信されます。
+ChatGPTデスクトップアプリは、あらかじめ起動して待機状態にしてください。初回のマイク許可やVoice設定画面が表示された場合は、その画面を手動で完了してから再実行してください。
+
+`run_chatgpt_ui_diagnostic.bat`と`launch_voice_control.bat`は、この自動開始とプロンプト適用には不要です。前者はUI調査用、後者はVRChat OSC・ミュート・考え中表示用です。
 
 ## 長時間会話と再適用
 
@@ -25,8 +26,10 @@
 送信せず入力欄の検出だけ確認する場合:
 
 ```powershell
-uv run chatgpt-voice-prompt --prompt-file system_prompt.txt --dry-run
+uv run chatgpt-voice-prompt --prompt-file system_prompt.txt --start-voice --dry-run
 ```
+
+すでに手動で開始したGPT Liveへ適用する場合は、`--start-voice`を外してください。
 
 Enterで送信されず、入力欄に文章が残る設定の場合:
 

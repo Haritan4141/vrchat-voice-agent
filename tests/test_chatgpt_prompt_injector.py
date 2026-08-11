@@ -9,11 +9,15 @@ from pathlib import Path
 from vrchat_ai_tool.chatgpt_prompt_injector import (
     ComposerNotReady,
     PromptInjectionError,
+    VoiceStartNotReady,
+    find_new_chat_target,
     find_prompt_target,
+    find_voice_start_target,
     load_prompt,
     parse_rectangle,
     run_prompt_injector,
     wait_for_prompt_target,
+    wait_for_voice_ready_after_click,
 )
 from vrchat_ai_tool.chatgpt_ui_diagnostic import UiElementRecord, UiScanResult
 
@@ -70,6 +74,14 @@ class FakeSender:
 
     def send(self, target, prompt: str, submit_key: str) -> None:
         self.calls.append((target, prompt, submit_key))
+
+
+class FakeClicker:
+    def __init__(self) -> None:
+        self.calls: list[object] = []
+
+    def click(self, target) -> None:
+        self.calls.append(target)
 
 
 class PromptInjectorTests(unittest.TestCase):
@@ -129,6 +141,94 @@ class PromptInjectorTests(unittest.TestCase):
                 )
             )
 
+    def test_find_new_chat_uses_only_the_exact_visible_button(self) -> None:
+        target = find_new_chat_target(
+            result(
+                record(
+                    "project-chat",
+                    control_type="Button",
+                    name="VRChat AI で新しいチャットを開始",
+                    class_name="button",
+                    rectangle="10,10,40,40",
+                ),
+                record(
+                    "new-chat",
+                    control_type="Button",
+                    name="新しいチャット",
+                    class_name="button",
+                    rectangle="50,10,80,40",
+                ),
+            )
+        )
+
+        self.assertEqual(target.locator, "new-chat")
+
+    def test_find_voice_start_ignores_dictation_and_busy_actions(self) -> None:
+        voice = record(
+            "voice",
+            control_type="Button",
+            name="音声モードを開始",
+            class_name="cursor-interaction size-token-button-composer rounded-full",
+            rectangle="470,270,500,300",
+        )
+        microphone = record(
+            "dictation",
+            control_type="Button",
+            name="音声入力",
+            class_name="button",
+            rectangle="430,270,460,300",
+        )
+
+        target = find_voice_start_target(result(record("composer"), microphone, voice))
+
+        self.assertEqual(target.locator, "voice")
+        with self.assertRaises(VoiceStartNotReady):
+            find_voice_start_target(
+                result(
+                    record("composer"),
+                    record(
+                        "stop",
+                        control_type="Button",
+                        name="停止",
+                        class_name=("cursor-interaction size-token-button-composer rounded-full"),
+                        rectangle="470,270,500,300",
+                    ),
+                )
+            )
+
+    def test_wait_for_voice_ready_requires_start_button_transition(self) -> None:
+        voice = record(
+            "voice",
+            control_type="Button",
+            name="Start voice",
+            class_name="size-token-button-composer rounded-full",
+            rectangle="470,270,500,300",
+        )
+        stop = record(
+            "stop",
+            control_type="Button",
+            name="Stop",
+            class_name="size-token-button-composer rounded-full",
+            rectangle="470,270,500,300",
+        )
+        provider = FakeProvider(
+            [
+                result(record("composer"), voice),
+                result(record("voice-composer"), stop),
+            ]
+        )
+        now = [0.0]
+
+        target = wait_for_voice_ready_after_click(
+            provider,
+            wait_seconds=3.0,
+            transition_delay_seconds=0.5,
+            clock=lambda: now[0],
+            sleep=lambda seconds: now.__setitem__(0, now[0] + seconds),
+        )
+
+        self.assertEqual(target.locator, "voice-composer")
+
     def test_wait_retries_until_the_composer_appears(self) -> None:
         provider = FakeProvider(
             [
@@ -186,6 +286,59 @@ class PromptInjectorTests(unittest.TestCase):
 
             self.assertEqual(exit_code, 0)
             self.assertEqual(sender.calls[0][1:], ("line 1\nline 2\n", "ctrl-enter"))
+
+    def test_run_can_open_new_chat_start_voice_and_send(self) -> None:
+        new_chat = record(
+            "new-chat",
+            control_type="Button",
+            name="New chat",
+            class_name="button",
+            rectangle="10,10,40,40",
+        )
+        voice = record(
+            "voice",
+            control_type="Button",
+            name="Start voice",
+            class_name="size-token-button-composer rounded-full",
+            rectangle="470,270,500,300",
+        )
+        stop = record(
+            "stop",
+            control_type="Button",
+            name="Stop",
+            class_name="size-token-button-composer rounded-full",
+            rectangle="470,270,500,300",
+        )
+        provider = FakeProvider(
+            [
+                result(record("old-composer"), new_chat, voice),
+                result(record("new-composer"), voice),
+                result(record("voice-composer"), stop),
+            ]
+        )
+        sender = FakeSender()
+        clicker = FakeClicker()
+        now = [0.0]
+
+        with tempfile.TemporaryDirectory() as temporary_directory:
+            path = Path(temporary_directory) / "system_prompt.txt"
+            path.write_text("persona", encoding="utf-8")
+            exit_code = run_prompt_injector(
+                prompt_path=path,
+                start_voice=True,
+                wait_seconds=3.0,
+                voice_wait_seconds=3.0,
+                provider=provider,
+                sender=sender,
+                clicker=clicker,
+                clock=lambda: now[0],
+                sleep=lambda seconds: now.__setitem__(0, now[0] + seconds),
+            )
+
+        self.assertEqual(exit_code, 0)
+        self.assertEqual([target.locator for target in clicker.calls], ["new-chat", "voice"])
+        self.assertEqual(sender.calls[0][0].locator, "voice-composer")
+        self.assertEqual(sender.calls[0][1:], ("persona", "enter"))
 
 
 if __name__ == "__main__":

@@ -17,6 +17,7 @@ from .chatgpt_ui_diagnostic import (
 
 DEFAULT_PROMPT_PATH = Path("system_prompt.txt")
 DEFAULT_WAIT_SECONDS = 15.0
+DEFAULT_VOICE_WAIT_SECONDS = 45.0
 MAX_PROMPT_BYTES = 64 * 1024
 COMPOSER_NAMES = (
     "何でもどうぞ",
@@ -24,6 +25,23 @@ COMPOSER_NAMES = (
     "chatgptにメッセージ",
     "message chatgpt",
 )
+NEW_CHAT_NAMES = (
+    "新しいチャット",
+    "new chat",
+)
+VOICE_NAME_MARKERS = (
+    "音声",
+    "voice",
+)
+BLOCKED_COMPOSER_ACTION_NAMES = (
+    "停止",
+    "送信",
+    "音声入力",
+    "stop",
+    "send",
+    "voice input",
+)
+VOICE_BUTTON_CLASS_FRAGMENT = "size-token-button-composer"
 
 
 class PromptInjectionError(RuntimeError):
@@ -32,6 +50,10 @@ class PromptInjectionError(RuntimeError):
 
 class ComposerNotReady(PromptInjectionError):
     """Raised when ChatGPT is not yet exposing a usable composer."""
+
+
+class VoiceStartNotReady(PromptInjectionError):
+    """Raised when a safe GPT Live start button is not yet available."""
 
 
 @dataclass(frozen=True, slots=True)
@@ -45,6 +67,10 @@ class PromptTarget:
 
 class PromptSender(Protocol):
     def send(self, target: PromptTarget, prompt: str, submit_key: str) -> None: ...
+
+
+class UiClicker(Protocol):
+    def click(self, target: PromptTarget) -> None: ...
 
 
 def load_prompt(path: Path, *, max_bytes: int = MAX_PROMPT_BYTES) -> str:
@@ -91,6 +117,31 @@ def _is_composer(record: UiElementRecord) -> bool:
     return "prosemirror" in class_name or name in COMPOSER_NAMES
 
 
+def _target_from_record(record: UiElementRecord) -> PromptTarget:
+    return PromptTarget(
+        process_id=record.process_id,
+        window_handle=record.window_handle,
+        window_title=record.window_title,
+        rectangle=parse_rectangle(record.rectangle),
+        locator=record.locator,
+    )
+
+
+def _unique_target(records: list[UiElementRecord], *, description: str) -> PromptTarget:
+    targets: dict[tuple[int, str], PromptTarget] = {}
+    for record in records:
+        target = _target_from_record(record)
+        targets[(target.window_handle, record.rectangle)] = target
+    if not targets:
+        raise VoiceStartNotReady(f"No safe {description} button is available yet.")
+    if len(targets) != 1:
+        raise PromptInjectionError(
+            f"More than one {description} button is visible. Close the extra ChatGPT "
+            "window before continuing."
+        )
+    return next(iter(targets.values()))
+
+
 def find_prompt_target(result: UiScanResult) -> PromptTarget:
     candidates = [record for record in result.elements.values() if _is_composer(record)]
     if not candidates:
@@ -104,13 +155,7 @@ def find_prompt_target(result: UiScanResult) -> PromptTarget:
 
     targets: dict[tuple[int, str], PromptTarget] = {}
     for record in candidates:
-        target = PromptTarget(
-            process_id=record.process_id,
-            window_handle=record.window_handle,
-            window_title=record.window_title,
-            rectangle=parse_rectangle(record.rectangle),
-            locator=record.locator,
-        )
+        target = _target_from_record(record)
         targets[(target.window_handle, record.rectangle)] = target
 
     if len(targets) != 1:
@@ -119,6 +164,115 @@ def find_prompt_target(result: UiScanResult) -> PromptTarget:
             "before sending the private prompt."
         )
     return next(iter(targets.values()))
+
+
+def find_new_chat_target(result: UiScanResult) -> PromptTarget:
+    records = [
+        record
+        for record in result.elements.values()
+        if record.control_type.casefold() == "button"
+        and " ".join(record.name.casefold().split()) in NEW_CHAT_NAMES
+        and record.is_enabled is not False
+        and record.is_offscreen is not True
+    ]
+    return _unique_target(records, description="new chat")
+
+
+def _is_near_composer(
+    button_rectangle: tuple[int, int, int, int],
+    composer_rectangle: tuple[int, int, int, int],
+) -> bool:
+    button_left, button_top, button_right, button_bottom = button_rectangle
+    _composer_left, composer_top, composer_right, composer_bottom = composer_rectangle
+    return (
+        button_left >= composer_right - 100
+        and button_right <= composer_right + 40
+        and button_top >= composer_top - 20
+        and button_bottom <= composer_bottom + 80
+    )
+
+
+def find_voice_start_target(result: UiScanResult) -> PromptTarget:
+    composer = find_prompt_target(result)
+    records: list[UiElementRecord] = []
+    blocked_action_found = False
+    for record in result.elements.values():
+        if record.window_handle != composer.window_handle:
+            continue
+        if record.control_type.casefold() != "button":
+            continue
+        if record.is_enabled is False or record.is_offscreen is True:
+            continue
+        class_name = record.class_name.casefold()
+        if VOICE_BUTTON_CLASS_FRAGMENT not in class_name:
+            continue
+        try:
+            rectangle = parse_rectangle(record.rectangle)
+        except PromptInjectionError:
+            continue
+        if not _is_near_composer(rectangle, composer.rectangle):
+            continue
+        name = " ".join(record.name.casefold().split())
+        if name in BLOCKED_COMPOSER_ACTION_NAMES:
+            blocked_action_found = True
+            continue
+        if name and not any(marker in name for marker in VOICE_NAME_MARKERS):
+            continue
+        records.append(record)
+
+    if not records and blocked_action_found:
+        raise VoiceStartNotReady(
+            "The composer action button is busy or is not in Voice-start state yet."
+        )
+    return _unique_target(records, description="GPT Live start")
+
+
+class WindowsUiClicker:
+    """Activate one verified ChatGPT window and click an exact screen rectangle."""
+
+    @staticmethod
+    def _activate_window(win32con, win32gui, window_handle: int) -> None:
+        if not win32gui.IsWindow(window_handle):
+            raise PromptInjectionError("The selected ChatGPT window was closed.")
+        if win32gui.IsIconic(window_handle):
+            win32gui.ShowWindow(window_handle, win32con.SW_RESTORE)
+        try:
+            win32gui.BringWindowToTop(window_handle)
+            win32gui.SetForegroundWindow(window_handle)
+        except Exception as exc:
+            raise PromptInjectionError("Could not focus the ChatGPT window.") from exc
+
+        deadline = time.monotonic() + 2.0
+        while win32gui.GetForegroundWindow() != window_handle:
+            if time.monotonic() >= deadline:
+                raise PromptInjectionError("ChatGPT did not become the foreground window.")
+            time.sleep(0.05)
+
+    def click(self, target: PromptTarget) -> None:
+        if platform.system() != "Windows":
+            raise PromptInjectionError("ChatGPT UI control is available only on Windows.")
+        try:
+            import win32con
+            import win32gui
+            from pywinauto import mouse
+        except ImportError as exc:  # pragma: no cover - exercised only on a broken install
+            raise PromptInjectionError(
+                "pywinauto is not installed. Run 'uv sync' in the project folder."
+            ) from exc
+
+        self._activate_window(win32con, win32gui, target.window_handle)
+        left, top, right, bottom = target.rectangle
+        point = ((left + right) // 2, (top + bottom) // 2)
+        point_window = win32gui.WindowFromPoint(point)
+        root_window = win32gui.GetAncestor(point_window, win32con.GA_ROOT)
+        if root_window != target.window_handle:
+            raise PromptInjectionError(
+                "The selected ChatGPT control is covered by another window; nothing was clicked."
+            )
+        mouse.click(coords=point)
+        time.sleep(0.15)
+        if win32gui.GetForegroundWindow() != target.window_handle:
+            raise PromptInjectionError("ChatGPT lost focus immediately after the click.")
 
 
 class WindowsPromptSender:
@@ -150,24 +304,6 @@ class WindowsPromptSender:
         finally:
             win32clipboard.CloseClipboard()
 
-    @staticmethod
-    def _activate_window(win32con, win32gui, window_handle: int) -> None:
-        if not win32gui.IsWindow(window_handle):
-            raise PromptInjectionError("The selected ChatGPT window was closed.")
-        if win32gui.IsIconic(window_handle):
-            win32gui.ShowWindow(window_handle, win32con.SW_RESTORE)
-        try:
-            win32gui.BringWindowToTop(window_handle)
-            win32gui.SetForegroundWindow(window_handle)
-        except Exception as exc:
-            raise PromptInjectionError("Could not focus the ChatGPT window.") from exc
-
-        deadline = time.monotonic() + 2.0
-        while win32gui.GetForegroundWindow() != window_handle:
-            if time.monotonic() >= deadline:
-                raise PromptInjectionError("ChatGPT did not become the foreground window.")
-            time.sleep(0.05)
-
     def send(self, target: PromptTarget, prompt: str, submit_key: str) -> None:
         if platform.system() != "Windows":
             raise PromptInjectionError("Prompt injection is available only on Windows.")
@@ -177,9 +313,8 @@ class WindowsPromptSender:
         try:
             import pythoncom
             import win32clipboard
-            import win32con
             import win32gui
-            from pywinauto import keyboard, mouse
+            from pywinauto import keyboard
         except ImportError as exc:  # pragma: no cover - exercised only on a broken install
             raise PromptInjectionError(
                 "pywinauto is not installed. Run 'uv sync' in the project folder."
@@ -196,19 +331,7 @@ class WindowsPromptSender:
                 original_clipboard = None
 
             self._put_prompt_on_clipboard(win32clipboard, prompt)
-            self._activate_window(win32con, win32gui, target.window_handle)
-
-            left, top, right, bottom = target.rectangle
-            point = ((left + right) // 2, (top + bottom) // 2)
-            point_window = win32gui.WindowFromPoint(point)
-            root_window = win32gui.GetAncestor(point_window, win32con.GA_ROOT)
-            if root_window != target.window_handle:
-                raise PromptInjectionError(
-                    "The ChatGPT message box is covered by another window; nothing was pasted."
-                )
-
-            mouse.click(coords=point)
-            time.sleep(0.15)
+            WindowsUiClicker().click(target)
             if win32gui.GetForegroundWindow() != target.window_handle:
                 raise PromptInjectionError(
                     "ChatGPT lost focus before pasting; nothing was submitted."
@@ -259,6 +382,67 @@ def wait_for_prompt_target(
         sleep(min(0.5, deadline - now))
 
 
+def _wait_for_ui_target(
+    provider: SnapshotProvider,
+    finder: Callable[[UiScanResult], PromptTarget],
+    *,
+    wait_seconds: float,
+    clock: Callable[[], float] = time.monotonic,
+    sleep: Callable[[float], None] = time.sleep,
+) -> PromptTarget:
+    if wait_seconds < 0:
+        raise PromptInjectionError("wait_seconds must be zero or greater.")
+    deadline = clock() + wait_seconds
+    last_error: PromptInjectionError | None = None
+    while True:
+        result = provider.scan()
+        try:
+            return finder(result)
+        except (ComposerNotReady, VoiceStartNotReady) as exc:
+            last_error = exc
+        now = clock()
+        if now >= deadline:
+            assert last_error is not None
+            raise last_error
+        sleep(min(0.5, deadline - now))
+
+
+def wait_for_voice_ready_after_click(
+    provider: SnapshotProvider,
+    *,
+    wait_seconds: float,
+    transition_delay_seconds: float = 1.0,
+    clock: Callable[[], float] = time.monotonic,
+    sleep: Callable[[float], None] = time.sleep,
+) -> PromptTarget:
+    if wait_seconds <= 0:
+        raise PromptInjectionError("voice_wait_seconds must be greater than zero.")
+    started = clock()
+    deadline = started + wait_seconds
+    voice_transition_seen = False
+    while True:
+        result = provider.scan()
+        now = clock()
+        if now - started >= max(0.0, transition_delay_seconds):
+            try:
+                find_voice_start_target(result)
+            except (ComposerNotReady, VoiceStartNotReady):
+                voice_transition_seen = True
+
+        if voice_transition_seen:
+            try:
+                return find_prompt_target(result)
+            except ComposerNotReady:
+                pass
+
+        if now >= deadline:
+            raise VoiceStartNotReady(
+                "GPT Live did not become ready before the timeout. Check ChatGPT for a "
+                "microphone permission or setup dialog."
+            )
+        sleep(min(0.5, deadline - now))
+
+
 def run_prompt_injector(
     *,
     prompt_path: Path = DEFAULT_PROMPT_PATH,
@@ -266,8 +450,13 @@ def run_prompt_injector(
     submit_key: str = "enter",
     process_names: Iterable[str] = DEFAULT_PROCESS_NAMES,
     dry_run: bool = False,
+    start_voice: bool = False,
+    voice_wait_seconds: float = DEFAULT_VOICE_WAIT_SECONDS,
     provider: SnapshotProvider | None = None,
     sender: PromptSender | None = None,
+    clicker: UiClicker | None = None,
+    clock: Callable[[], float] = time.monotonic,
+    sleep: Callable[[float], None] = time.sleep,
 ) -> int:
     prompt = load_prompt(prompt_path)
     scanner = provider or PywinautoSnapshotProvider(process_names, include_offscreen=False)
@@ -276,13 +465,57 @@ def run_prompt_injector(
     print(f"- Prompt file: {prompt_path.expanduser().resolve()}")
     print("- Privacy: prompt contents are not printed or logged.")
     print("- Target: the single visible ChatGPT message box")
-    print("- Use only after a new GPT Live voice task has started.")
+    if start_voice:
+        print("- Mode: open a new task, start GPT Live, then apply the prompt")
+    else:
+        print("- Mode: apply to an already-started GPT Live voice task")
     print()
-    print("Looking for the ChatGPT message box...")
-    target = wait_for_prompt_target(scanner, wait_seconds=wait_seconds)
-    if dry_run:
-        print("Ready: one ChatGPT message box was found. No input was sent.")
-        return 0
+
+    if start_voice:
+        print("Looking for the New chat button...")
+        new_chat_target = _wait_for_ui_target(
+            scanner,
+            find_new_chat_target,
+            wait_seconds=wait_seconds,
+            clock=clock,
+            sleep=sleep,
+        )
+        if dry_run:
+            initial_scan = scanner.scan()
+            find_voice_start_target(initial_scan)
+            print("Ready: New chat and GPT Live start controls were found. No input was sent.")
+            return 0
+
+        ui_clicker = clicker or WindowsUiClicker()
+        ui_clicker.click(new_chat_target)
+        sleep(0.75)
+        print("Looking for the GPT Live start button...")
+        voice_start_target = _wait_for_ui_target(
+            scanner,
+            find_voice_start_target,
+            wait_seconds=wait_seconds,
+            clock=clock,
+            sleep=sleep,
+        )
+        ui_clicker.click(voice_start_target)
+        print("GPT Live start requested. Waiting for the voice task...")
+        target = wait_for_voice_ready_after_click(
+            scanner,
+            wait_seconds=voice_wait_seconds,
+            clock=clock,
+            sleep=sleep,
+        )
+    else:
+        print("Looking for the ChatGPT message box...")
+        target = wait_for_prompt_target(
+            scanner,
+            wait_seconds=wait_seconds,
+            clock=clock,
+            sleep=sleep,
+        )
+        if dry_run:
+            print("Ready: one ChatGPT message box was found. No input was sent.")
+            return 0
 
     (sender or WindowsPromptSender()).send(target, prompt, submit_key)
     if submit_key == "none":
