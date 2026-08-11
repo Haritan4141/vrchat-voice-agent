@@ -119,6 +119,17 @@ class PromptInjectorTests(unittest.TestCase):
         self.assertTrue(batch)
         batch.decode("ascii")
 
+    def test_batch_applies_the_standalone_session_prompt(self) -> None:
+        repository_root = Path(__file__).resolve().parents[1]
+        batch = (repository_root / "apply_voice_prompt.bat").read_text(encoding="ascii")
+        prompt = (repository_root / "system_prompt.txt").read_text(encoding="utf-8")
+
+        self.assertIn('--prompt-file "%~dp0system_prompt.txt"', batch)
+        self.assertIn("--start-voice", batch)
+        self.assertIn("この音声セッション全体に適用する会話設定", prompt)
+        self.assertIn("ほかのファイルや事前設定の読み込みは必要ありません", prompt)
+        self.assertNotIn("AGENTS.md", prompt)
+
     def test_load_prompt_accepts_utf8_bom_without_returning_it(self) -> None:
         with tempfile.TemporaryDirectory() as temporary_directory:
             path = Path(temporary_directory) / "system_prompt.txt"
