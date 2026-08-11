@@ -324,6 +324,24 @@ class WindowsPromptSender:
         finally:
             win32clipboard.CloseClipboard()
 
+    def _restore_or_clear_clipboard(
+        self,
+        pythoncom,
+        win32clipboard,
+        original_clipboard,
+        original_available: bool,
+    ) -> bool:
+        if original_available:
+            try:
+                pythoncom.OleSetClipboard(original_clipboard)
+                pythoncom.OleFlushClipboard()
+                return True
+            except Exception:  # noqa: BLE001 - clipboard providers can reject OLE restore
+                self._clear_clipboard(win32clipboard)
+                return False
+        self._clear_clipboard(win32clipboard)
+        return True
+
     def send(self, target: PromptTarget, prompt: str, submit_key: str) -> None:
         if platform.system() != "Windows":
             raise PromptInjectionError("Prompt injection is available only on Windows.")
@@ -368,11 +386,19 @@ class WindowsPromptSender:
                     keyboard.send_keys(keys, pause=0.02)
                     time.sleep(0.2)
             finally:
-                if original_available:
-                    pythoncom.OleSetClipboard(original_clipboard)
-                    pythoncom.OleFlushClipboard()
-                else:
-                    self._clear_clipboard(win32clipboard)
+                restored = self._restore_or_clear_clipboard(
+                    pythoncom,
+                    win32clipboard,
+                    original_clipboard,
+                    original_available,
+                )
+                if original_available and not restored:
+                    print(
+                        "Warning: the prompt was submitted, but the previous clipboard "
+                        "could not be restored. The clipboard was cleared for privacy."
+                    )
+                # Release the OLE proxy before leaving the initialized COM apartment.
+                original_clipboard = None
 
 
 def wait_for_prompt_target(
