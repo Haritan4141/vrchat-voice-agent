@@ -35,6 +35,7 @@ def record(
     window_handle: int = 20,
     name: str = "何でもどうぞ",
     control_type: str = "Edit",
+    automation_id: str = "",
     class_name: str = "ProseMirror ProseMirror-focused",
     rectangle: str = "100,200,500,260",
     is_enabled: bool = True,
@@ -47,7 +48,7 @@ def record(
         window_title="ChatGPT",
         control_type=control_type,
         name=name,
-        automation_id="",
+        automation_id=automation_id,
         class_name=class_name,
         is_enabled=is_enabled,
         is_offscreen=is_offscreen,
@@ -275,6 +276,34 @@ class PromptInjectorTests(unittest.TestCase):
                         name="ChatGPT",
                         class_name="product-switcher",
                         rectangle="10,10,100,40",
+                    ),
+                )
+            )
+
+    def test_require_codex_mode_accepts_codex_root_document(self) -> None:
+        composer = record("composer", rectangle="300,700,800,760")
+        codex_root = record(
+            "codex-root",
+            control_type="Document",
+            name="Codex",
+            automation_id="RootWebArea",
+            class_name="",
+            rectangle="0,0,1000,800",
+        )
+
+        require_codex_mode(result(composer, codex_root))
+
+        with self.assertRaises(CodexModeNotReady):
+            require_codex_mode(
+                result(
+                    composer,
+                    record(
+                        "chat-root",
+                        control_type="Document",
+                        name="ChatGPT",
+                        automation_id="RootWebArea",
+                        class_name="",
+                        rectangle="0,0,1000,800",
                     ),
                 )
             )

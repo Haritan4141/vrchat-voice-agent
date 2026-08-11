@@ -236,7 +236,14 @@ def require_codex_mode(result: UiScanResult) -> None:
             continue
         if record.is_enabled is False or record.is_offscreen is True:
             continue
-        if " ".join(record.name.casefold().split()) not in CODEX_MODE_NAMES:
+        name = " ".join(record.name.casefold().split())
+        if (
+            record.control_type.casefold() == "document"
+            and record.automation_id.casefold() == "rootwebarea"
+            and name == "codex"
+        ):
+            return
+        if name not in CODEX_MODE_NAMES:
             continue
         try:
             _left, top, right, _bottom = parse_rectangle(record.rectangle)
