@@ -41,17 +41,25 @@ uv run chatgpt-voice-doctor --config config/chatgpt_voice.toml
 uv run chatgpt-voice-doctor --config config/chatgpt_voice.toml --live-seconds 8
 ```
 
-操作サーバーを起動する場合:
+本番運用を開始する場合は、次のバッチを実行します。停止するまで無期限で動作し、ChatGPT画面状態監視、OSC、LAN操作画面、自己ループ監視をまとめて起動します。
+
+```powershell
+.\controls\run_chatgpt_voice_production.bat
+```
+
+コマンドから直接起動する場合:
 
 ```powershell
 uv run vrchat-voice-control --config config/chatgpt_voice.toml
 ```
 
+終了する場合は、サブPC側のコンソールで`Ctrl+C`を押します。`run_chatgpt_ui_diagnostic.bat`は3分間の調査ログを取得する診断専用であり、本番運用では起動不要です。
+
 初回起動時だけ`config/control-token.txt`が生成されます。メインPCから`http://サブPCのIPv4:18765/`を開き、そのトークンを入力します。
 
 詳細は[ChatGPT Voice運用ガイド](docs/chatgpt-voice-control.md)を参照してください。
 
-キャラクター指示は`apply_voice_prompt.bat`から適用します。詳しい手順は[GPT Liveへのキャラクター指示の適用](docs/chatgpt-voice-prompt.md)を参照してください。
+キャラクター指示は`controls\apply_voice_prompt.bat`から適用します。普段使う起動バッチは`controls`フォルダーへまとめています。詳しい手順は[GPT Liveへのキャラクター指示の適用](docs/chatgpt-voice-prompt.md)を参照してください。
 
 ## 重要
 

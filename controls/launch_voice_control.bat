@@ -1,22 +1,15 @@
 @echo off
 setlocal
-cd /d "%~dp0"
-
-if not exist "%~dp0system_prompt.txt" goto :missing_prompt
-
-echo ChatGPT desktop must be running and idle.
-echo Opening a new task, starting GPT Live, and applying the prompt...
-
+for %%R in ("%~dp0..") do set "REPO_ROOT=%%~fR"
+cd /d "%REPO_ROOT%"
 call :find_uv
 if errorlevel 1 goto :missing_uv
+if not exist "config\chatgpt_voice.toml" copy "config\chatgpt_voice.example.toml" "config\chatgpt_voice.toml" >nul
 "%UV_EXE%" sync --quiet
 if errorlevel 1 goto :failed
-"%UV_EXE%" run chatgpt-voice-prompt --prompt-file "%~dp0system_prompt.txt" --start-voice --wait-seconds 30 --voice-wait-seconds 45
+"%UV_EXE%" run vrchat-voice-control --config config\chatgpt_voice.toml
 set "RESULT=%errorlevel%"
 echo.
-if "%RESULT%"=="0" (
-  echo Run this file again whenever you need to reapply the prompt.
-)
 pause
 exit /b %RESULT%
 
@@ -29,16 +22,9 @@ if exist "%USERPROFILE%\.local\bin\uv.exe" set "UV_EXE=%USERPROFILE%\.local\bin\
 if defined UV_EXE exit /b 0
 exit /b 1
 
-:missing_prompt
-echo [ERROR] system_prompt.txt was not found.
-echo Place it in the same folder as this batch file.
-echo.
-pause
-exit /b 1
-
 :missing_uv
-echo [ERROR] uv was not found.
-echo Run this command in PowerShell, then try again:
+echo [ERROR] uv is not installed or could not be found.
+echo Install it from PowerShell, then run this file again:
 echo   winget install --id=astral-sh.uv -e
 echo.
 pause

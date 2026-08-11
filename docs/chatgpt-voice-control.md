@@ -31,11 +31,21 @@ uv run chatgpt-voice-doctor --config config/chatgpt_voice.toml --live-seconds 8
 
 ## 3. メインPCから操作する
 
-サブPC側で起動します。
+サブPC側で本番用バッチを起動します。このプロセスは時間制限なく動作し、`Ctrl+C`を押すかウィンドウを閉じるまで停止しません。
+
+```powershell
+.\controls\run_chatgpt_voice_production.bat
+```
+
+コマンドから直接起動する場合は次を実行します。
 
 ```powershell
 uv run vrchat-voice-control --config config/chatgpt_voice.toml
 ```
+
+本番用プロセスにはChatGPT画面状態監視が内蔵されています。`run_chatgpt_ui_diagnostic.bat`はUI変化をJSONLへ記録する3分間の調査専用ツールであり、本番運用中に併用する必要はありません。
+
+監視は0.75秒ごとに対象プロセスとトップレベルウィンドウを再探索します。ChatGPT内で新しいチャット／タスクへ移動した場合やVoiceを開始し直した場合も、通常は本番用プロセスを再起動する必要はありません。ChatGPTアプリ自体を終了・再起動した場合も、起動後のウィンドウを自動的に再検出します。再起動中は一時的にGUIの画面検出が未検出／待機中になります。
 
 初回のみ、十分に長いランダムトークンが`config/control-token.txt`へ生成されます。`ipconfig`でサブPCのIPv4を確認し、メインPCのブラウザから次を開きます。
 
@@ -184,7 +194,7 @@ CABLE-Bへ入った音を発話として扱うため、ChatGPT以外のアプリ
 
 1. Unityから更新したアバターをBuild & Publishする
 2. VRChatのOSCを有効にし、更新したアバターへ切り替える
-3. サブPCで`launch_voice_control.bat`を起動する
+3. サブPCで`controls\run_chatgpt_voice_production.bat`を起動する
 4. 操作画面の自動モーションが`IDLE / ON`になることを確認する
 5. 無音時に呼吸・首・上半身・腕の小さな待機動作が出ることを確認する
 6. ChatGPT Voiceに発話させ、表示が`SPEAKING / ON`へ切り替わることを確認する
