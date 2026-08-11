@@ -157,6 +157,40 @@ def build_parser() -> argparse.ArgumentParser:
         action="store_true",
         help="Log all elements in the initial snapshot (may expose more conversation text).",
     )
+
+    prompt_parser = subparsers.add_parser(
+        "chatgpt-voice-prompt",
+        help="Paste a private prompt into an already-started GPT Live voice task.",
+    )
+    prompt_parser.add_argument(
+        "--prompt-file",
+        type=Path,
+        default=Path("system_prompt.txt"),
+        help="UTF-8 prompt file (default: system_prompt.txt).",
+    )
+    prompt_parser.add_argument(
+        "--wait-seconds",
+        type=float,
+        default=15.0,
+        help="Seconds to wait for one visible ChatGPT message box.",
+    )
+    prompt_parser.add_argument(
+        "--submit-key",
+        choices=("enter", "ctrl-enter", "none"),
+        default="enter",
+        help="How to submit after pasting (default: enter).",
+    )
+    prompt_parser.add_argument(
+        "--process-name",
+        action="append",
+        dest="process_names",
+        help="Target executable name. Can be specified more than once (default: ChatGPT.exe).",
+    )
+    prompt_parser.add_argument(
+        "--dry-run",
+        action="store_true",
+        help="Verify that exactly one message box is available without sending input.",
+    )
     return parser
 
 
@@ -303,6 +337,17 @@ def main(argv: list[str] | None = None) -> int:
                 include_offscreen=args.include_offscreen,
                 show_initial=args.show_initial,
             )
+        if args.command == "chatgpt-voice-prompt":
+            from .chatgpt_prompt_injector import run_prompt_injector
+            from .chatgpt_ui_diagnostic import DEFAULT_PROCESS_NAMES
+
+            return run_prompt_injector(
+                prompt_path=args.prompt_file,
+                wait_seconds=args.wait_seconds,
+                submit_key=args.submit_key,
+                process_names=args.process_names or DEFAULT_PROCESS_NAMES,
+                dry_run=args.dry_run,
+            )
     except KeyboardInterrupt:
         print("Interrupted.", file=sys.stderr)
         return 130
@@ -324,3 +369,7 @@ def voice_control_main() -> int:
 
 def chatgpt_ui_diagnostic_main() -> int:
     return main(["chatgpt-ui-diagnostic", *sys.argv[1:]])
+
+
+def chatgpt_voice_prompt_main() -> int:
+    return main(["chatgpt-voice-prompt", *sys.argv[1:]])

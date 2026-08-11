@@ -24,6 +24,7 @@ ChatGPT Voice出力
 - LAN操作画面: メインPCのブラウザからミュートと状態表示を操作
 - アバター状態: 汎用Intパラメーター`VoiceAgentStatus`へ0〜3を送信
 - 考え中表示: ChatGPTの読み取り専用UI Automation状態とCABLE-Bの無音判定から、同期Bool `VoiceAgentThinking`を自動制御
+- キャラクター指示: GPT Live開始後に`system_prompt.txt`を安全に送信し、必要時に再適用
 
 ## 初回準備
 
@@ -48,6 +49,8 @@ uv run vrchat-voice-control --config config/chatgpt_voice.toml
 初回起動時だけ`config/control-token.txt`が生成されます。メインPCから`http://サブPCのIPv4:18765/`を開き、そのトークンを入力します。
 
 詳細は[ChatGPT Voice運用ガイド](docs/chatgpt-voice-control.md)を参照してください。
+
+キャラクター指示は`apply_voice_prompt.bat`から適用します。詳しい手順は[GPT Liveへのキャラクター指示の適用](docs/chatgpt-voice-prompt.md)を参照してください。
 
 ## 重要
 
