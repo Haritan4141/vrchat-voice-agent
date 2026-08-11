@@ -4,9 +4,13 @@ import tempfile
 import unittest
 from datetime import datetime, timezone
 from pathlib import Path
+from types import SimpleNamespace
+from unittest.mock import patch
 
 from vrchat_ai_tool.chatgpt_ui_diagnostic import (
+    PywinautoSnapshotProvider,
     UiElementRecord,
+    UiScanResult,
     default_output_path,
     diff_snapshots,
     is_candidate,
@@ -38,6 +42,46 @@ def element(
 
 
 class ChatGptUiDiagnosticTests(unittest.TestCase):
+    def test_snapshot_scan_keeps_com_initialized_for_the_operation(self) -> None:
+        class FakeComError(Exception):
+            pass
+
+        class FakePythonCom:
+            COINIT_MULTITHREADED = 0
+            com_error = FakeComError
+
+            def __init__(self) -> None:
+                self.initialized = False
+
+            def CoInitializeEx(self, mode: int) -> None:
+                self.initialized = True
+
+            def CoUninitialize(self) -> None:
+                self.initialized = False
+
+        fake_pythoncom = FakePythonCom()
+        state_seen: list[bool] = []
+
+        class StubProvider(PywinautoSnapshotProvider):
+            def _scan_with_com(self) -> UiScanResult:
+                state_seen.append(fake_pythoncom.initialized)
+                return UiScanResult((), 0, {})
+
+        with (
+            patch("vrchat_ai_tool.chatgpt_ui_diagnostic.platform.system", return_value="Windows"),
+            patch.dict(
+                "sys.modules",
+                {
+                    "pythoncom": fake_pythoncom,
+                    "winerror": SimpleNamespace(RPC_E_CHANGED_MODE=-2147417850),
+                },
+            ),
+        ):
+            StubProvider().scan()
+
+        self.assertEqual(state_seen, [True])
+        self.assertFalse(fake_pythoncom.initialized)
+
     def test_normalize_text_makes_one_line_and_truncates(self) -> None:
         self.assertEqual(normalize_text("  Web\n  search  "), "Web search")
         self.assertEqual(normalize_text("abcdef", 4), "abc…")

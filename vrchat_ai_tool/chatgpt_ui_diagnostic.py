@@ -3,8 +3,10 @@ from __future__ import annotations
 import json
 import os
 import platform
+import sys
 import time
-from collections.abc import Iterable
+from collections.abc import Iterable, Iterator
+from contextlib import contextmanager
 from dataclasses import asdict, dataclass
 from datetime import datetime, timezone
 from pathlib import Path
@@ -91,6 +93,35 @@ class UiChange:
 
 class SnapshotProvider(Protocol):
     def scan(self) -> UiScanResult: ...
+
+
+@contextmanager
+def windows_com_apartment() -> Iterator[None]:
+    """Keep COM initialized for one Windows UI Automation operation."""
+    if platform.system() != "Windows":
+        yield
+        return
+
+    try:
+        import pythoncom
+        import winerror
+    except ImportError as exc:  # pragma: no cover - pywinauto installs pywin32
+        raise RuntimeError("pywin32 is required for ChatGPT UI Automation.") from exc
+
+    initialized = False
+    try:
+        try:
+            mode = getattr(sys, "coinit_flags", pythoncom.COINIT_MULTITHREADED)
+            pythoncom.CoInitializeEx(mode)
+            initialized = True
+        except pythoncom.com_error as exc:
+            if exc.hresult != winerror.RPC_E_CHANGED_MODE:
+                raise RuntimeError("Could not initialize Windows COM automation.") from exc
+            # The calling thread already has another valid COM apartment model.
+        yield
+    finally:
+        if initialized:
+            pythoncom.CoUninitialize()
 
 
 def diff_snapshots(
@@ -204,6 +235,10 @@ class PywinautoSnapshotProvider:
     def scan(self) -> UiScanResult:
         if platform.system() != "Windows":
             raise RuntimeError("ChatGPT UI Automation diagnostic is available only on Windows.")
+        with windows_com_apartment():
+            return self._scan_with_com()
+
+    def _scan_with_com(self) -> UiScanResult:
         try:
             from pywinauto.uia_defines import IUIA
         except ImportError as exc:  # pragma: no cover - exercised only on a broken install
