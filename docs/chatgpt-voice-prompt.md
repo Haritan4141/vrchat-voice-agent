@@ -13,7 +13,7 @@ GPT Liveの会話人格は、音声タスクごとに`system_prompt.txt`を最�
 
 ChatGPTデスクトップアプリは、あらかじめ起動して待機状態にしてください。初回のマイク許可やVoice設定画面が表示された場合は、その画面を手動で完了してから再実行してください。
 
-`run_chatgpt_ui_diagnostic.bat`と`controls\launch_voice_control.bat`は、この自動開始とプロンプト適用には不要です。前者はUI調査用、後者はVRChat OSC・ミュート・考え中表示用です。
+`run_chatgpt_ui_diagnostic.bat`と`launch_voice_control.bat`は、この自動開始とプロンプト適用には不要です。前者はUI調査用、後者は本番用バッチから呼び出されるVRChat OSC・ミュート・考え中表示用の内部ランチャーです。
 
 ## 長時間会話と再適用
 

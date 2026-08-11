@@ -110,7 +110,7 @@ run_chatgpt_voice_doctor.bat
 ### LAN操作サーバー
 
 ```powershell
-controls\launch_voice_control.bat
+launch_voice_control.bat
 ```
 
 主な機能:
@@ -465,8 +465,8 @@ uvx ruff check vrchat_ai_tool/chatgpt_ui_state.py `
 ## 14. 2026-08-12 本番用UI監視起動
 
 - 本番用ランチャー`controls\run_chatgpt_voice_production.bat`を追加。
-- 内部では`controls\launch_voice_control.bat`を呼び出し、ChatGPT画面状態監視、OSC、LAN操作画面、自己ループ監視をまとめて無期限で動作させる。
+- 内部ではリポジトリ直下の`launch_voice_control.bat`を呼び出し、ChatGPT画面状態監視、OSC、LAN操作画面、自己ループ監視をまとめて無期限で動作させる。
 - 停止はサブPC側コンソールの`Ctrl+C`またはウィンドウを閉じる操作で行う。
 - `run_chatgpt_ui_diagnostic.bat`は180秒の調査ログ取得専用で、本番では不要。
 - UI監視はスキャンごとにChatGPTのPIDとトップレベルウィンドウを再探索するため、チャット／タスクやVoiceセッションの切り替えでは通常再起動不要。ChatGPTアプリ自体の再起動後も自動再検出する。
-- 普段使う`apply_voice_prompt.bat`、`launch_voice_control.bat`、`run_chatgpt_voice_production.bat`はリポジトリ直下の`controls`フォルダーへ移動。各バッチは親ディレクトリをリポジトリルートとして解決する。
+- 普段使う`apply_voice_prompt.bat`と`run_chatgpt_voice_production.bat`は`controls`フォルダーへ配置。内部用の`launch_voice_control.bat`はリポジトリ直下へ戻し、本番用バッチから親ディレクトリ経由で呼び出す。

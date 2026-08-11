@@ -1,7 +1,6 @@
 @echo off
 setlocal
-for %%R in ("%~dp0..") do set "REPO_ROOT=%%~fR"
-cd /d "%REPO_ROOT%"
+cd /d "%~dp0"
 call :find_uv
 if errorlevel 1 goto :missing_uv
 if not exist "config\chatgpt_voice.toml" copy "config\chatgpt_voice.example.toml" "config\chatgpt_voice.toml" >nul

@@ -32,7 +32,11 @@ NEW_CHAT_NAMES = (
 )
 VOICE_NAME_MARKERS = (
     "音声",
+    "会話",
+    "話す",
+    "ライブ",
     "voice",
+    "live",
 )
 BLOCKED_COMPOSER_ACTION_NAMES = (
     "停止",
@@ -212,6 +216,24 @@ def _is_near_composer(
     )
 
 
+def _is_compact_right_edge_composer_action(
+    button_rectangle: tuple[int, int, int, int],
+    composer_rectangle: tuple[int, int, int, int],
+) -> bool:
+    button_left, button_top, button_right, button_bottom = button_rectangle
+    _composer_left, composer_top, composer_right, composer_bottom = composer_rectangle
+    width = button_right - button_left
+    height = button_bottom - button_top
+    return (
+        16 <= width <= 64
+        and 16 <= height <= 64
+        and button_left >= composer_right - 80
+        and button_right <= composer_right + 40
+        and button_top >= composer_top - 20
+        and button_bottom <= composer_bottom + 80
+    )
+
+
 def find_voice_start_target(result: UiScanResult) -> PromptTarget:
     composer = find_prompt_target(result)
     records: list[UiElementRecord] = []
@@ -223,9 +245,6 @@ def find_voice_start_target(result: UiScanResult) -> PromptTarget:
             continue
         if record.is_enabled is False or record.is_offscreen is True:
             continue
-        class_name = record.class_name.casefold()
-        if VOICE_BUTTON_CLASS_FRAGMENT not in class_name:
-            continue
         try:
             rectangle = parse_rectangle(record.rectangle)
         except PromptInjectionError:
@@ -236,7 +255,18 @@ def find_voice_start_target(result: UiScanResult) -> PromptTarget:
         if name in BLOCKED_COMPOSER_ACTION_NAMES:
             blocked_action_found = True
             continue
-        if name and not any(marker in name for marker in VOICE_NAME_MARKERS):
+        class_name = record.class_name.casefold()
+        has_voice_name = any(marker in name for marker in VOICE_NAME_MARKERS)
+        has_known_class = VOICE_BUTTON_CLASS_FRAGMENT in class_name
+        is_unnamed_right_edge_action = (
+            not name
+            and _is_compact_right_edge_composer_action(rectangle, composer.rectangle)
+        )
+        if not (
+            has_voice_name
+            or (has_known_class and not name)
+            or is_unnamed_right_edge_action
+        ):
             continue
         records.append(record)
 

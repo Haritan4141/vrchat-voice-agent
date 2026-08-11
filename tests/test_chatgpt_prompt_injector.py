@@ -259,6 +259,57 @@ class PromptInjectorTests(unittest.TestCase):
                 )
             )
 
+    def test_find_voice_start_accepts_chat_mode_right_edge_button(self) -> None:
+        voice = record(
+            "chat-mode-voice",
+            control_type="Button",
+            name="会話を開始",
+            class_name=(
+                "no-drag cursor-interaction items-center rounded-full "
+                "bg-token-foreground"
+            ),
+            rectangle="470,270,500,300",
+        )
+        microphone = record(
+            "dictation",
+            control_type="Button",
+            name="音声入力",
+            class_name="no-drag cursor-interaction items-center rounded-full",
+            rectangle="430,270,460,300",
+        )
+
+        target = find_voice_start_target(result(record("composer"), microphone, voice))
+
+        self.assertEqual(target.locator, "chat-mode-voice")
+
+    def test_find_voice_start_accepts_unnamed_right_edge_button(self) -> None:
+        voice = record(
+            "unnamed-voice",
+            control_type="Button",
+            name="",
+            class_name="no-drag cursor-interaction rounded-full",
+            rectangle="470,270,500,300",
+        )
+
+        target = find_voice_start_target(result(record("composer"), voice))
+
+        self.assertEqual(target.locator, "unnamed-voice")
+
+    def test_find_voice_start_rejects_unknown_named_right_edge_button(self) -> None:
+        with self.assertRaises(VoiceStartNotReady):
+            find_voice_start_target(
+                result(
+                    record("composer"),
+                    record(
+                        "unknown",
+                        control_type="Button",
+                        name="Open settings",
+                        class_name="no-drag cursor-interaction rounded-full",
+                        rectangle="470,270,500,300",
+                    ),
+                )
+            )
+
     def test_wait_for_voice_ready_requires_start_button_transition(self) -> None:
         voice = record(
             "voice",
