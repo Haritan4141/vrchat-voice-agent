@@ -6,12 +6,14 @@ GPT Liveの会話人格は、音声タスクごとに`system_prompt.txt`を最�
 
 ## 通常の使い方
 
-1. `controls\apply_voice_prompt.bat`をダブルクリックします。
-2. ツールがChatGPTの「新しいチャット」を開き、GPT Live開始ボタンを押します。
-3. `Prompt sent`と表示され、GPT Liveが「準備できたよ」と答えれば適用完了です。
-4. 「名前は？」と聞き、「ラズリだよ」と答えることを確認します。
+1. ChatGPTデスクトップアプリ左上の製品メニューで`Codex`を選び、空の画面で待機します。
+2. `controls\apply_voice_prompt.bat`をダブルクリックします。
+3. ツールがCodexの「新しいチャット」を開き、GPT Live開始ボタンを押します。
+4. GPT Liveの画面が表示されてから内部セッションの準備を5秒待ち、指示を送信します。
+5. `Prompt sent`と表示され、GPT Liveが「準備できたよ」と答えれば適用完了です。
+6. 「名前は？」と聞き、「ラズリだよ」と答えることを確認します。
 
-ChatGPTデスクトップアプリは、あらかじめ起動して待機状態にしてください。初回のマイク許可やVoice設定画面が表示された場合は、その画面を手動で完了してから再実行してください。
+ランチャーは誤って通常のChatへ送信しないよう、画面左上にCodexモードが表示されていることを確認します。Codexが検出できなければ、何も送信せず終了します。初回のマイク許可やVoice設定画面が表示された場合は、その画面を手動で完了してから再実行してください。
 
 `run_chatgpt_ui_diagnostic.bat`と`launch_voice_control.bat`は、この自動開始とプロンプト適用には不要です。前者はUI調査用、後者は本番用バッチから呼び出されるVRChat OSC・ミュート・考え中表示用の内部ランチャーです。
 
@@ -36,5 +38,7 @@ Enterで送信されず、入力欄に文章が残る設定の場合:
 ```powershell
 uv run chatgpt-voice-prompt --prompt-file system_prompt.txt --submit-key ctrl-enter
 ```
+
+GPT Live開始後の待機時間を変更する場合は、`--voice-stabilization-seconds`を指定します。画面が表示されても内部セッションの準備が終わる前に送信すると、指示が反映されない場合があります。
 
 複数のChatGPTウィンドウや入力欄を検出した場合は、誤送信防止のため何も送らず終了します。余分なウィンドウを閉じてから再実行してください。

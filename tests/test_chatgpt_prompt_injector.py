@@ -9,6 +9,7 @@ from types import SimpleNamespace
 from unittest.mock import Mock
 
 from vrchat_ai_tool.chatgpt_prompt_injector import (
+    CodexModeNotReady,
     ComposerNotReady,
     PromptInjectionError,
     VoiceStartNotReady,
@@ -18,6 +19,7 @@ from vrchat_ai_tool.chatgpt_prompt_injector import (
     find_voice_start_target,
     load_prompt,
     parse_rectangle,
+    require_codex_mode,
     run_prompt_injector,
     wait_for_prompt_target,
     wait_for_voice_ready_after_click,
@@ -128,6 +130,8 @@ class PromptInjectorTests(unittest.TestCase):
 
         self.assertIn('--prompt-file "%REPO_ROOT%\\system_prompt.txt"', batch)
         self.assertIn("--start-voice", batch)
+        self.assertIn("--require-codex", batch)
+        self.assertIn("--voice-stabilization-seconds 5", batch)
         self.assertIn("この音声セッション全体に適用する会話設定", prompt)
         self.assertIn("ほかのファイルや事前設定の読み込みは必要ありません", prompt)
         self.assertNotIn("AGENTS.md", prompt)
@@ -238,6 +242,33 @@ class PromptInjectorTests(unittest.TestCase):
         )
 
         self.assertEqual(target.locator, "sidebar-new-chat")
+
+    def test_require_codex_mode_accepts_only_visible_sidebar_product_button(self) -> None:
+        composer = record("composer", rectangle="300,200,800,260")
+        codex = record(
+            "codex-mode",
+            control_type="Button",
+            name="Codex",
+            class_name="product-switcher",
+            rectangle="10,10,100,40",
+        )
+
+        require_codex_mode(result(composer, codex))
+        with self.assertRaises(CodexModeNotReady):
+            require_codex_mode(result(composer))
+        with self.assertRaises(CodexModeNotReady):
+            require_codex_mode(
+                result(
+                    composer,
+                    record(
+                        "chat-mode",
+                        control_type="Button",
+                        name="ChatGPT",
+                        class_name="product-switcher",
+                        rectangle="10,10,100,40",
+                    ),
+                )
+            )
 
     def test_find_voice_start_ignores_dictation_and_busy_actions(self) -> None:
         voice = record(
@@ -441,6 +472,13 @@ class PromptInjectorTests(unittest.TestCase):
             self.assertEqual(sender.calls[0][1:], ("line 1\nline 2\n", "ctrl-enter"))
 
     def test_run_can_open_new_chat_start_voice_and_send(self) -> None:
+        codex = record(
+            "codex-mode",
+            control_type="Button",
+            name="Codex",
+            class_name="product-switcher",
+            rectangle="10,10,90,40",
+        )
         new_chat = record(
             "new-chat",
             control_type="Button",
@@ -464,7 +502,8 @@ class PromptInjectorTests(unittest.TestCase):
         )
         provider = FakeProvider(
             [
-                result(record("old-composer"), new_chat, voice),
+                result(record("old-composer"), codex, new_chat, voice),
+                result(record("old-composer"), codex, new_chat, voice),
                 result(record("new-composer"), voice),
                 result(
                     record(
@@ -486,8 +525,10 @@ class PromptInjectorTests(unittest.TestCase):
             exit_code = run_prompt_injector(
                 prompt_path=path,
                 start_voice=True,
+                require_codex=True,
                 wait_seconds=3.0,
                 voice_wait_seconds=3.0,
+                voice_stabilization_seconds=5.0,
                 provider=provider,
                 sender=sender,
                 clicker=clicker,
@@ -499,6 +540,7 @@ class PromptInjectorTests(unittest.TestCase):
         self.assertEqual([target.locator for target in clicker.calls], ["new-chat", "voice"])
         self.assertEqual(sender.calls[0][0].locator, "voice-composer")
         self.assertEqual(sender.calls[0][1:], ("persona", "enter"))
+        self.assertGreaterEqual(now[0], 6.25)
 
 
 if __name__ == "__main__":

@@ -19,6 +19,7 @@ from .chatgpt_ui_diagnostic import (
 DEFAULT_PROMPT_PATH = Path("system_prompt.txt")
 DEFAULT_WAIT_SECONDS = 15.0
 DEFAULT_VOICE_WAIT_SECONDS = 45.0
+DEFAULT_VOICE_STABILIZATION_SECONDS = 5.0
 MAX_PROMPT_BYTES = 64 * 1024
 COMPOSER_NAMES = (
     "何でもどうぞ",
@@ -63,6 +64,10 @@ class ComposerNotReady(PromptInjectionError):
 
 class VoiceStartNotReady(PromptInjectionError):
     """Raised when a safe GPT Live start button is not yet available."""
+
+
+class CodexModeNotReady(PromptInjectionError):
+    """Raised when the desktop app is not visibly in Codex mode."""
 
 
 @dataclass(frozen=True, slots=True)
@@ -204,6 +209,29 @@ def find_new_chat_target(result: UiScanResult) -> PromptTarget:
         )
 
     return _unique_target(records, description="new chat")
+
+
+def require_codex_mode(result: UiScanResult) -> None:
+    composer = find_prompt_target(result)
+    for record in result.elements.values():
+        if record.window_handle != composer.window_handle:
+            continue
+        if record.control_type.casefold() != "button":
+            continue
+        if record.is_enabled is False or record.is_offscreen is True:
+            continue
+        if " ".join(record.name.casefold().split()) != "codex":
+            continue
+        try:
+            _left, top, right, _bottom = parse_rectangle(record.rectangle)
+        except PromptInjectionError:
+            continue
+        if right <= composer.rectangle[0] and top < composer.rectangle[1]:
+            return
+    raise CodexModeNotReady(
+        "Codex mode was not detected. Select Codex from the upper-left product menu "
+        "in the ChatGPT desktop app, then run the launcher again."
+    )
 
 
 def _is_near_composer(
@@ -530,13 +558,19 @@ def run_prompt_injector(
     process_names: Iterable[str] = DEFAULT_PROCESS_NAMES,
     dry_run: bool = False,
     start_voice: bool = False,
+    require_codex: bool = False,
     voice_wait_seconds: float = DEFAULT_VOICE_WAIT_SECONDS,
+    voice_stabilization_seconds: float = DEFAULT_VOICE_STABILIZATION_SECONDS,
     provider: SnapshotProvider | None = None,
     sender: PromptSender | None = None,
     clicker: UiClicker | None = None,
     clock: Callable[[], float] = time.monotonic,
     sleep: Callable[[float], None] = time.sleep,
 ) -> int:
+    if voice_stabilization_seconds < 0:
+        raise PromptInjectionError(
+            "voice_stabilization_seconds must be zero or greater."
+        )
     prompt = load_prompt(prompt_path)
     scanner = provider or PywinautoSnapshotProvider(process_names, include_offscreen=False)
 
@@ -545,12 +579,18 @@ def run_prompt_injector(
     print("- Privacy: prompt contents are not printed or logged.")
     print("- Target: the single visible ChatGPT message box")
     if start_voice:
-        print("- Mode: open a new task, start GPT Live, then apply the prompt")
+        if require_codex:
+            print("- Mode: require Codex, open a new task, start GPT Live, then apply the prompt")
+        else:
+            print("- Mode: open a new task, start GPT Live, then apply the prompt")
     else:
         print("- Mode: apply to an already-started GPT Live voice task")
     print()
 
     if start_voice:
+        if require_codex:
+            print("Checking for Codex mode...")
+            require_codex_mode(scanner.scan())
         print("Looking for the New chat button...")
         new_chat_target = _wait_for_ui_target(
             scanner,
@@ -584,6 +624,12 @@ def run_prompt_injector(
             clock=clock,
             sleep=sleep,
         )
+        if voice_stabilization_seconds > 0:
+            print(
+                "GPT Live UI is visible. Waiting "
+                f"{voice_stabilization_seconds:g} seconds for the session to stabilize..."
+            )
+            sleep(voice_stabilization_seconds)
     else:
         print("Looking for the ChatGPT message box...")
         target = wait_for_prompt_target(

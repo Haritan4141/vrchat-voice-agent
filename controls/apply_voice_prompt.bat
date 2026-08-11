@@ -5,14 +5,14 @@ cd /d "%REPO_ROOT%"
 
 if not exist "%REPO_ROOT%\system_prompt.txt" goto :missing_prompt
 
-echo ChatGPT desktop must be running and idle.
-echo Opening a new task, starting GPT Live, and applying the prompt...
+echo ChatGPT desktop must be running in Codex mode and idle.
+echo Opening a new Codex task, starting GPT Live, and applying the prompt...
 
 call :find_uv
 if errorlevel 1 goto :missing_uv
 "%UV_EXE%" sync --quiet
 if errorlevel 1 goto :failed
-"%UV_EXE%" run chatgpt-voice-prompt --prompt-file "%REPO_ROOT%\system_prompt.txt" --start-voice --wait-seconds 30 --voice-wait-seconds 45
+"%UV_EXE%" run chatgpt-voice-prompt --prompt-file "%REPO_ROOT%\system_prompt.txt" --start-voice --require-codex --wait-seconds 30 --voice-wait-seconds 45 --voice-stabilization-seconds 5
 set "RESULT=%errorlevel%"
 echo.
 if "%RESULT%"=="0" (

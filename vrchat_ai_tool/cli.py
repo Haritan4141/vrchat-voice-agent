@@ -197,10 +197,24 @@ def build_parser() -> argparse.ArgumentParser:
         help="Open a new task and click the GPT Live start button before sending.",
     )
     prompt_parser.add_argument(
+        "--require-codex",
+        action="store_true",
+        help="Stop without sending unless the desktop app is visibly in Codex mode.",
+    )
+    prompt_parser.add_argument(
         "--voice-wait-seconds",
         type=float,
         default=45.0,
         help="Seconds to wait for GPT Live after clicking its start button.",
+    )
+    prompt_parser.add_argument(
+        "--voice-stabilization-seconds",
+        type=float,
+        default=5.0,
+        help=(
+            "Seconds to wait after the GPT Live UI appears before sending "
+            "(default: 5)."
+        ),
     )
     return parser
 
@@ -359,7 +373,9 @@ def main(argv: list[str] | None = None) -> int:
                 process_names=args.process_names or DEFAULT_PROCESS_NAMES,
                 dry_run=args.dry_run,
                 start_voice=args.start_voice,
+                require_codex=args.require_codex,
                 voice_wait_seconds=args.voice_wait_seconds,
+                voice_stabilization_seconds=args.voice_stabilization_seconds,
             )
     except KeyboardInterrupt:
         print("Interrupted.", file=sys.stderr)
