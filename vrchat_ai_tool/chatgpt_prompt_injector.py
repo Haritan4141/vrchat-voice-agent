@@ -34,6 +34,13 @@ NEW_CHAT_NAMES = (
     "新しいチャット",
     "new chat",
 )
+CODEX_MODE_NAMES = (
+    "codex",
+    "codex menu",
+    "codex メニュー",
+    "プルリクエスト",
+    "pull requests",
+)
 VOICE_NAME_MARKERS = (
     "音声",
     "会話",
@@ -216,11 +223,9 @@ def require_codex_mode(result: UiScanResult) -> None:
     for record in result.elements.values():
         if record.window_handle != composer.window_handle:
             continue
-        if record.control_type.casefold() != "button":
-            continue
         if record.is_enabled is False or record.is_offscreen is True:
             continue
-        if " ".join(record.name.casefold().split()) != "codex":
+        if " ".join(record.name.casefold().split()) not in CODEX_MODE_NAMES:
             continue
         try:
             _left, top, right, _bottom = parse_rectangle(record.rectangle)

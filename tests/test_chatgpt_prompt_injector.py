@@ -243,17 +243,25 @@ class PromptInjectorTests(unittest.TestCase):
 
         self.assertEqual(target.locator, "sidebar-new-chat")
 
-    def test_require_codex_mode_accepts_only_visible_sidebar_product_button(self) -> None:
+    def test_require_codex_mode_accepts_product_text_or_codex_sidebar_marker(self) -> None:
         composer = record("composer", rectangle="300,200,800,260")
         codex = record(
             "codex-mode",
-            control_type="Button",
+            control_type="Text",
             name="Codex",
             class_name="product-switcher",
             rectangle="10,10,100,40",
         )
+        pull_requests = record(
+            "pull-requests",
+            control_type="Button",
+            name="プルリクエスト",
+            class_name="sidebar-item",
+            rectangle="10,50,180,80",
+        )
 
         require_codex_mode(result(composer, codex))
+        require_codex_mode(result(composer, pull_requests))
         with self.assertRaises(CodexModeNotReady):
             require_codex_mode(result(composer))
         with self.assertRaises(CodexModeNotReady):
