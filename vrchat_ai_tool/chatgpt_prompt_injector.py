@@ -288,5 +288,5 @@ def run_prompt_injector(
     if submit_key == "none":
         print("Prompt pasted but not submitted.")
     else:
-        print("Prompt sent. ChatGPT should answer only: 準備できたよ")
+        print("Prompt sent. Wait for ChatGPT's configured ready confirmation.")
     return 0
