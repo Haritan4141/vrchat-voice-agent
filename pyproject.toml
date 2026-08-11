@@ -15,6 +15,7 @@ dependencies = [
   "numpy>=1.26,<2.3",
   "psutil>=7,<8",
   "pycaw>=20251023,<20270000",
+  "pywinauto>=0.6.9,<1; sys_platform == 'win32'",
   "python-osc>=1.10,<2",
   "tomli>=2,<3; python_version < '3.11'",
 ]
@@ -27,6 +28,7 @@ stt = [
 [project.scripts]
 vrchat-ai-tool = "vrchat_ai_tool.cli:main"
 chatgpt-voice-doctor = "vrchat_ai_tool.cli:voice_doctor_main"
+chatgpt-ui-diagnostic = "vrchat_ai_tool.cli:chatgpt_ui_diagnostic_main"
 vrchat-voice-control = "vrchat_ai_tool.cli:voice_control_main"
 
 [tool.hatch.build.targets.wheel]

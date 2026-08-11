@@ -120,6 +120,43 @@ def build_parser() -> argparse.ArgumentParser:
         help="Path to the ChatGPT Voice TOML config.",
     )
 
+    ui_diagnostic_parser = subparsers.add_parser(
+        "chatgpt-ui-diagnostic",
+        help="Log read-only ChatGPT UI Automation changes for Voice/Search diagnosis.",
+    )
+    ui_diagnostic_parser.add_argument(
+        "--duration-seconds",
+        type=float,
+        default=180.0,
+        help="Stop after this many seconds. Use 0 to run until Ctrl+C.",
+    )
+    ui_diagnostic_parser.add_argument(
+        "--interval-seconds",
+        type=float,
+        default=0.5,
+        help="UI Automation polling interval (minimum 0.2 seconds).",
+    )
+    ui_diagnostic_parser.add_argument(
+        "--output",
+        type=Path,
+        help="JSONL output path. Defaults to artifacts/chatgpt-ui-diagnostic-*.jsonl.",
+    )
+    ui_diagnostic_parser.add_argument(
+        "--process-name",
+        action="append",
+        dest="process_names",
+        help="Target executable name. Can be specified more than once (default: ChatGPT.exe).",
+    )
+    ui_diagnostic_parser.add_argument(
+        "--include-offscreen",
+        action="store_true",
+        help="Include off-screen accessibility elements.",
+    )
+    ui_diagnostic_parser.add_argument(
+        "--show-initial",
+        action="store_true",
+        help="Log all elements in the initial snapshot (may expose more conversation text).",
+    )
     return parser
 
 
@@ -255,6 +292,17 @@ def main(argv: list[str] | None = None) -> int:
             from .voice_config import load_voice_config
 
             return run_control_server(load_voice_config(args.config))
+        if args.command == "chatgpt-ui-diagnostic":
+            from .chatgpt_ui_diagnostic import DEFAULT_PROCESS_NAMES, run_ui_diagnostic
+
+            return run_ui_diagnostic(
+                duration_seconds=args.duration_seconds,
+                interval_seconds=args.interval_seconds,
+                output_path=args.output,
+                process_names=args.process_names or DEFAULT_PROCESS_NAMES,
+                include_offscreen=args.include_offscreen,
+                show_initial=args.show_initial,
+            )
     except KeyboardInterrupt:
         print("Interrupted.", file=sys.stderr)
         return 130
@@ -272,3 +320,7 @@ def voice_doctor_main() -> int:
 
 def voice_control_main() -> int:
     return main(["voice-control-server", *sys.argv[1:]])
+
+
+def chatgpt_ui_diagnostic_main() -> int:
+    return main(["chatgpt-ui-diagnostic", *sys.argv[1:]])
