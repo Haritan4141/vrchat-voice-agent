@@ -282,6 +282,32 @@ class PromptInjectorTests(unittest.TestCase):
 
         self.assertEqual(target.locator, "chat-mode-voice")
 
+    def test_find_voice_start_accepts_controls_beyond_chat_mode_editor(self) -> None:
+        voice = record(
+            "chat-mode-voice",
+            control_type="Button",
+            name="会話を開始",
+            class_name="no-drag cursor-interaction rounded-full",
+            rectangle="536,270,566,300",
+        )
+        microphone = record(
+            "dictation",
+            control_type="Button",
+            name="音声入力",
+            class_name="no-drag cursor-interaction rounded-full",
+            rectangle="500,270,530,300",
+        )
+
+        target = find_voice_start_target(
+            result(
+                record("composer", rectangle="100,200,400,260"),
+                microphone,
+                voice,
+            )
+        )
+
+        self.assertEqual(target.locator, "chat-mode-voice")
+
     def test_find_voice_start_accepts_unnamed_right_edge_button(self) -> None:
         voice = record(
             "unnamed-voice",

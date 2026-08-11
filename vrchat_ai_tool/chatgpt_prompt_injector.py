@@ -47,6 +47,7 @@ BLOCKED_COMPOSER_ACTION_NAMES = (
     "voice input",
 )
 VOICE_BUTTON_CLASS_FRAGMENT = "size-token-button-composer"
+COMPOSER_ACTION_MAX_RIGHT_GAP = 240
 
 
 class PromptInjectionError(RuntimeError):
@@ -210,7 +211,9 @@ def _is_near_composer(
     _composer_left, composer_top, composer_right, composer_bottom = composer_rectangle
     return (
         button_left >= composer_right - 100
-        and button_right <= composer_right + 40
+        # Chat mode can expose the ProseMirror edit rectangle without the
+        # model, dictation, and Voice controls that share its visual container.
+        and button_right <= composer_right + COMPOSER_ACTION_MAX_RIGHT_GAP
         and button_top >= composer_top - 20
         and button_bottom <= composer_bottom + 80
     )
@@ -228,7 +231,7 @@ def _is_compact_right_edge_composer_action(
         16 <= width <= 64
         and 16 <= height <= 64
         and button_left >= composer_right - 80
-        and button_right <= composer_right + 40
+        and button_right <= composer_right + COMPOSER_ACTION_MAX_RIGHT_GAP
         and button_top >= composer_top - 20
         and button_bottom <= composer_bottom + 80
     )
