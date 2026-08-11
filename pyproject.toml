@@ -29,6 +29,7 @@ stt = [
 vrchat-ai-tool = "vrchat_ai_tool.cli:main"
 chatgpt-voice-doctor = "vrchat_ai_tool.cli:voice_doctor_main"
 chatgpt-ui-diagnostic = "vrchat_ai_tool.cli:chatgpt_ui_diagnostic_main"
+chatgpt-voice-prompt = "vrchat_ai_tool.cli:chatgpt_voice_prompt_main"
 vrchat-voice-control = "vrchat_ai_tool.cli:voice_control_main"
 
 [tool.hatch.build.targets.wheel]
