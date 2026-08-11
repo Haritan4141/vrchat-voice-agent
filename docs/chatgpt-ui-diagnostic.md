@@ -48,9 +48,9 @@ ChatGPT画面に表示されている会話本文がログに含まれる可能�
 
 ## 5700X PCで確認できた判定信号
 
-通常回答とWeb検索の両方で、`StatusBar`かつクラス名に`activityPillMaterial`を含む無名要素が作業中だけ安定して現れました。Web検索中はさらに「ウェブを検索中」のテキストが現れます。常駐監視では前者を必須信号、後者を検索種別の補助信号として使用します。
+ChatGPTアプリのUI更新前は、`StatusBar`かつクラス名に`activityPillMaterial`を含む無名要素が作業中だけ安定して現れました。現在のUIでは、`StatusBar`＋`CompactMaterial`、アクティブな`loading-shimmer-pure-text`、またはactivity-headerの`思考中`を作業中信号として使用します。Web検索中は「ウェブを検索中」などのテキストが取得できた場合だけ、検索種別として区別します。
 
-過去の会話に残る「3秒作業しました」や通常の検索ボタンは、ステータスバーがない限り作業中とは判定しません。
+過去の会話に残る「3秒作業しました」「17s間作業しました」や通常の検索ボタンは、作業中とは判定しません。
 
 常駐監視では、VRChatが前面にある通常運用を想定して、背面・最小化されたChatGPTの要素も読み取ります。`config/chatgpt_voice.toml`の`[ui_monitor]`で`include_offscreen = false`にすると、画面外として報告された要素を除外できます。
 

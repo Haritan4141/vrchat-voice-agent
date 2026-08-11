@@ -67,6 +67,86 @@ class ChatGptUiStateTests(unittest.TestCase):
             UiActivitySignals(activity=True, searching=False),
         )
 
+    def test_current_compact_status_bar_detects_work(self) -> None:
+        result = UiScanResult(
+            process_ids=(1,),
+            window_count=1,
+            elements={
+                "pill": record(
+                    "pill",
+                    control_type="StatusBar",
+                    class_name=(
+                        "_Material_abcd _CompactMaterial_abcd "
+                        "no-drag pointer-events-none"
+                    ),
+                )
+            },
+        )
+
+        self.assertEqual(
+            detect_ui_activity(result),
+            UiActivitySignals(activity=True, searching=False),
+        )
+
+    def test_current_active_shimmer_detects_work_but_inactive_does_not(self) -> None:
+        active = UiScanResult(
+            process_ids=(1,),
+            window_count=1,
+            elements={
+                "shimmer": record(
+                    "shimmer",
+                    control_type="Group",
+                    class_name=(
+                        "loading-shimmer-pure-text _cadencedShimmer_abcd "
+                        "_cadencedShimmerActive_abcd"
+                    ),
+                )
+            },
+        )
+        inactive = UiScanResult(
+            process_ids=(1,),
+            window_count=1,
+            elements={
+                "shimmer": record(
+                    "shimmer",
+                    control_type="Group",
+                    class_name="loading-shimmer-pure-text _cadencedShimmer_abcd",
+                )
+            },
+        )
+
+        self.assertTrue(detect_ui_activity(active).activity)
+        self.assertFalse(detect_ui_activity(inactive).activity)
+
+    def test_current_activity_header_only_matches_live_thinking(self) -> None:
+        thinking = UiScanResult(
+            process_ids=(1,),
+            window_count=1,
+            elements={
+                "header": record(
+                    "header",
+                    control_type="Button",
+                    name="思考中",
+                    class_name="group/activity-header inline-flex",
+                )
+            },
+        )
+        completed = UiScanResult(
+            process_ids=(1,),
+            window_count=1,
+            elements={
+                "header": record(
+                    "header",
+                    control_type="Button",
+                    name="17s間作業しました",
+                    class_name="group/activity-header inline-flex",
+                )
+            },
+        )
+
+        self.assertTrue(detect_ui_activity(thinking).activity)
+        self.assertFalse(detect_ui_activity(completed).activity)
+
     def test_web_search_text_is_more_specific_than_working(self) -> None:
         result = UiScanResult(
             process_ids=(1,),

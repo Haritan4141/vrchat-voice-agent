@@ -15,6 +15,14 @@ from .chatgpt_ui_diagnostic import (
 from .voice_config import VoiceUiMonitorConfig
 
 ACTIVITY_CLASS_FRAGMENT = "activitypillmaterial"
+COMPACT_STATUS_CLASS_FRAGMENT = "compactmaterial"
+SHIMMER_CLASS_FRAGMENT = "loading-shimmer-pure-text"
+ACTIVE_SHIMMER_CLASS_FRAGMENT = "cadencedshimmeractive"
+ACTIVITY_HEADER_CLASS_FRAGMENT = "group/activity-header"
+ACTIVE_HEADER_NAMES = (
+    "思考中",
+    "thinking",
+)
 SEARCH_TEXT_MARKERS = (
     "ウェブを検索中",
     "webを検索中",
@@ -48,6 +56,23 @@ def detect_ui_activity(result: UiScanResult) -> UiActivitySignals:
         if (
             record.control_type.casefold() == "statusbar"
             and ACTIVITY_CLASS_FRAGMENT in class_name
+        ):
+            activity_pill = True
+        if (
+            record.control_type.casefold() == "statusbar"
+            and COMPACT_STATUS_CLASS_FRAGMENT in class_name
+            and "pointer-events-none" in class_name
+        ):
+            activity_pill = True
+        if (
+            SHIMMER_CLASS_FRAGMENT in class_name
+            and ACTIVE_SHIMMER_CLASS_FRAGMENT in class_name
+        ):
+            activity_pill = True
+        if (
+            record.control_type.casefold() == "button"
+            and ACTIVITY_HEADER_CLASS_FRAGMENT in class_name
+            and name in ACTIVE_HEADER_NAMES
         ):
             activity_pill = True
     # The activity pill is required. This prevents old conversation text such as
