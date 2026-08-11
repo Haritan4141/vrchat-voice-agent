@@ -14,6 +14,7 @@ from vrchat_ai_tool.chatgpt_prompt_injector import (
     PromptInjectionError,
     VoiceStartNotReady,
     WindowsPromptSender,
+    WindowsUiClicker,
     find_new_chat_target,
     find_prompt_target,
     find_voice_start_target,
@@ -92,6 +93,88 @@ class FakeClicker:
 
 
 class PromptInjectorTests(unittest.TestCase):
+    def test_window_activation_retries_with_attached_input_queues(self) -> None:
+        class FakeWin32Gui:
+            foreground_window = 99
+
+            @staticmethod
+            def IsWindow(_window_handle: int) -> bool:
+                return True
+
+            @staticmethod
+            def IsIconic(_window_handle: int) -> bool:
+                return False
+
+            @staticmethod
+            def ShowWindow(_window_handle: int, _command: int) -> None:
+                pass
+
+            @staticmethod
+            def BringWindowToTop(_window_handle: int) -> None:
+                pass
+
+            @classmethod
+            def SetForegroundWindow(cls, window_handle: int) -> None:
+                if not fake_win32process.attached:
+                    raise RuntimeError("foreground activation was denied")
+                cls.foreground_window = window_handle
+
+            @classmethod
+            def GetForegroundWindow(cls) -> int:
+                return cls.foreground_window
+
+            @staticmethod
+            def SetWindowPos(*_args) -> None:
+                pass
+
+            @staticmethod
+            def SetActiveWindow(_window_handle: int) -> None:
+                pass
+
+        class FakeWin32Process:
+            def __init__(self) -> None:
+                self.attached = False
+                self.calls: list[tuple[int, int, bool]] = []
+
+            @staticmethod
+            def GetWindowThreadProcessId(window_handle: int) -> tuple[int, int]:
+                return (window_handle + 100, window_handle + 1000)
+
+            def AttachThreadInput(
+                self,
+                current_thread_id: int,
+                other_thread_id: int,
+                attach: bool,
+            ) -> None:
+                self.calls.append((current_thread_id, other_thread_id, attach))
+                self.attached = attach or any(call[2] for call in self.calls[:-1])
+                if not attach:
+                    self.attached = False
+
+        fake_win32process = FakeWin32Process()
+        win32api = SimpleNamespace(GetCurrentThreadId=Mock(return_value=7))
+        win32con = SimpleNamespace(
+            HWND_TOP=0,
+            SW_RESTORE=9,
+            SWP_NOMOVE=2,
+            SWP_NOSIZE=1,
+            SWP_SHOWWINDOW=64,
+        )
+        clicker = WindowsUiClicker(focus_wait_seconds=0)
+
+        clicker._activate_window(
+            win32api,
+            win32con,
+            FakeWin32Gui,
+            fake_win32process,
+            20,
+        )
+
+        self.assertEqual(FakeWin32Gui.foreground_window, 20)
+        self.assertIn((7, 199, True), fake_win32process.calls)
+        self.assertIn((7, 120, True), fake_win32process.calls)
+        self.assertEqual(fake_win32process.calls[-2:], [(7, 120, False), (7, 199, False)])
+
     def test_clipboard_restore_failure_clears_prompt_without_raising(self) -> None:
         sender = WindowsPromptSender()
         pythoncom = SimpleNamespace(

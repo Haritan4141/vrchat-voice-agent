@@ -515,3 +515,18 @@ uvx ruff check vrchat_ai_tool/chatgpt_ui_state.py `
 - `[captions].stt_max_chars`で表示上限を変更できる。UIAの既定上限144文字には影響しない。
 - 字幕の`AI: `接頭辞は廃止した。既存設定に`prefix = "AI: "`が残っていても、新しい`prefix_enabled = false`の既定値により表示しない。
 - この変更はPython側のOSCチャットボックス送信だけで、アバターの再アップロードは不要。
+
+## 19. 2026-08-12 Voiceプロンプト適用時のフォーカス修正
+
+- 5700X実機で`controls\apply_voice_prompt.bat`が`Could not focus the ChatGPT window.`で
+  頻繁に停止する問題を確認した。
+- 原因は、内部の`WindowsUiClicker`が`SetForegroundWindow`を1回呼び、Windowsに前面化を
+  拒否されると即終了していたこと。
+- 通常の前面化が失敗した場合、現在の前面ウィンドウとChatGPTの入力スレッドへ一時的に
+  接続し、前面化を最大3秒再試行するフォールバックを追加した。
+- ChatGPT以外への誤操作を防ぐため、対象ウィンドウの一致確認、クリック位置を別ウィンドウが
+  覆っていないことの確認、クリック後の前面ウィンドウ確認は従来どおり維持する。
+- フォーカス拒否を再現するユニットテストを追加。全126テスト、対象Ruff、`git diff --check`成功。
+- `apply_voice_prompt.bat`はランチャーのため変更不要。修正対象は
+  `vrchat_ai_tool/chatgpt_prompt_injector.py`とテスト。
+- この修正は現在未コミット。ユーザー所有の`5700X_PC/`と`config/settings.toml`は変更しない。

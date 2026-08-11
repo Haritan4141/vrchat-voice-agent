@@ -3,6 +3,7 @@ from __future__ import annotations
 import platform
 import time
 from collections.abc import Callable, Iterable
+from contextlib import suppress
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Protocol
@@ -363,37 +364,141 @@ def find_voice_start_target(result: UiScanResult) -> PromptTarget:
 class WindowsUiClicker:
     """Activate one verified ChatGPT window and click an exact screen rectangle."""
 
+    def __init__(
+        self,
+        *,
+        focus_wait_seconds: float = 3.0,
+        clock: Callable[[], float] = time.monotonic,
+        sleep: Callable[[float], None] = time.sleep,
+    ) -> None:
+        self.focus_wait_seconds = focus_wait_seconds
+        self.clock = clock
+        self.sleep = sleep
+
     @staticmethod
-    def _activate_window(win32con, win32gui, window_handle: int) -> None:
-        if not win32gui.IsWindow(window_handle):
-            raise PromptInjectionError("The selected ChatGPT window was closed.")
+    def _show_and_request_foreground(win32con, win32gui, window_handle: int) -> None:
         if win32gui.IsIconic(window_handle):
             win32gui.ShowWindow(window_handle, win32con.SW_RESTORE)
-        try:
-            win32gui.BringWindowToTop(window_handle)
-            win32gui.SetForegroundWindow(window_handle)
-        except Exception as exc:
-            raise PromptInjectionError("Could not focus the ChatGPT window.") from exc
+        win32gui.BringWindowToTop(window_handle)
+        win32gui.SetForegroundWindow(window_handle)
 
-        deadline = time.monotonic() + 2.0
-        while win32gui.GetForegroundWindow() != window_handle:
-            if time.monotonic() >= deadline:
-                raise PromptInjectionError("ChatGPT did not become the foreground window.")
-            time.sleep(0.05)
+    @staticmethod
+    def _request_foreground_with_attached_input(
+        win32api,
+        win32con,
+        win32gui,
+        win32process,
+        window_handle: int,
+    ) -> None:
+        """Temporarily share input queues when Windows rejects foreground activation."""
+        current_thread_id = win32api.GetCurrentThreadId()
+        target_thread_id = win32process.GetWindowThreadProcessId(window_handle)[0]
+        foreground_window = win32gui.GetForegroundWindow()
+        foreground_thread_id = (
+            win32process.GetWindowThreadProcessId(foreground_window)[0]
+            if foreground_window
+            else 0
+        )
+        attached_thread_ids: list[int] = []
+        try:
+            for thread_id in dict.fromkeys((foreground_thread_id, target_thread_id)):
+                if not thread_id or thread_id == current_thread_id:
+                    continue
+                attachment_succeeded = False
+                try:
+                    win32process.AttachThreadInput(current_thread_id, thread_id, True)
+                    attachment_succeeded = True
+                except Exception:  # noqa: BLE001 - one queue may already be attached
+                    attachment_succeeded = False
+                if attachment_succeeded:
+                    attached_thread_ids.append(thread_id)
+
+            if win32gui.IsIconic(window_handle):
+                with suppress(Exception):
+                    win32gui.ShowWindow(window_handle, win32con.SW_RESTORE)
+            with suppress(Exception):
+                win32gui.BringWindowToTop(window_handle)
+            with suppress(Exception):
+                win32gui.SetWindowPos(
+                    window_handle,
+                    win32con.HWND_TOP,
+                    0,
+                    0,
+                    0,
+                    0,
+                    win32con.SWP_NOMOVE | win32con.SWP_NOSIZE | win32con.SWP_SHOWWINDOW,
+                )
+            with suppress(Exception):
+                win32gui.SetForegroundWindow(window_handle)
+            with suppress(Exception):
+                win32gui.SetActiveWindow(window_handle)
+        finally:
+            for thread_id in reversed(attached_thread_ids):
+                with suppress(Exception):  # best-effort Win32 cleanup
+                    win32process.AttachThreadInput(current_thread_id, thread_id, False)
+
+    def _activate_window(
+        self,
+        win32api,
+        win32con,
+        win32gui,
+        win32process,
+        window_handle: int,
+    ) -> None:
+        if not win32gui.IsWindow(window_handle):
+            raise PromptInjectionError("The selected ChatGPT window was closed.")
+
+        deadline = self.clock() + self.focus_wait_seconds
+        last_error: Exception | None = None
+        while True:
+            try:
+                self._show_and_request_foreground(win32con, win32gui, window_handle)
+            except Exception as exc:  # noqa: BLE001 - retry a transient Win32 refusal
+                last_error = exc
+            if win32gui.GetForegroundWindow() == window_handle:
+                return
+
+            try:
+                self._request_foreground_with_attached_input(
+                    win32api,
+                    win32con,
+                    win32gui,
+                    win32process,
+                    window_handle,
+                )
+            except Exception as exc:  # noqa: BLE001 - retry until the short deadline
+                last_error = exc
+            if win32gui.GetForegroundWindow() == window_handle:
+                return
+
+            if self.clock() >= deadline:
+                raise PromptInjectionError(
+                    "Could not focus the ChatGPT window after retrying for "
+                    f"{self.focus_wait_seconds:g} seconds."
+                ) from last_error
+            self.sleep(0.1)
 
     def click(self, target: PromptTarget) -> None:
         if platform.system() != "Windows":
             raise PromptInjectionError("ChatGPT UI control is available only on Windows.")
         try:
+            import win32api
             import win32con
             import win32gui
+            import win32process
             from pywinauto import mouse
         except ImportError as exc:  # pragma: no cover - exercised only on a broken install
             raise PromptInjectionError(
                 "pywinauto is not installed. Run 'uv sync' in the project folder."
             ) from exc
 
-        self._activate_window(win32con, win32gui, target.window_handle)
+        self._activate_window(
+            win32api,
+            win32con,
+            win32gui,
+            win32process,
+            target.window_handle,
+        )
         left, top, right, bottom = target.rectangle
         point = ((left + right) // 2, (top + bottom) // 2)
         point_window = win32gui.WindowFromPoint(point)
@@ -403,7 +508,7 @@ class WindowsUiClicker:
                 "The selected ChatGPT control is covered by another window; nothing was clicked."
             )
         mouse.click(coords=point)
-        time.sleep(0.15)
+        self.sleep(0.15)
         if win32gui.GetForegroundWindow() != target.window_handle:
             raise PromptInjectionError("ChatGPT lost focus immediately after the click.")
 
