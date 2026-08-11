@@ -167,14 +167,33 @@ def find_prompt_target(result: UiScanResult) -> PromptTarget:
 
 
 def find_new_chat_target(result: UiScanResult) -> PromptTarget:
+    composer = find_prompt_target(result)
     records = [
         record
         for record in result.elements.values()
-        if record.control_type.casefold() == "button"
+        if record.window_handle == composer.window_handle
+        and record.control_type.casefold() == "button"
         and " ".join(record.name.casefold().split()) in NEW_CHAT_NAMES
         and record.is_enabled is not False
         and record.is_offscreen is not True
     ]
+
+    sidebar_targets = [
+        _target_from_record(record)
+        for record in records
+        if parse_rectangle(record.rectangle)[2] <= composer.rectangle[0]
+    ]
+    if sidebar_targets:
+        return min(
+            sidebar_targets,
+            key=lambda target: (
+                target.rectangle[1],
+                target.rectangle[0],
+                (target.rectangle[2] - target.rectangle[0])
+                * (target.rectangle[3] - target.rectangle[1]),
+            ),
+        )
+
     return _unique_target(records, description="new chat")
 
 
