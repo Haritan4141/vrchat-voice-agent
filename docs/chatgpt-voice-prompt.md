@@ -39,6 +39,6 @@ Enterで送信されず、入力欄に文章が残る設定の場合:
 uv run chatgpt-voice-prompt --prompt-file system_prompt.txt --submit-key ctrl-enter
 ```
 
-GPT Live開始後の待機時間を変更する場合は、`--voice-stabilization-seconds`を指定します。画面が表示されても内部セッションの準備が終わる前に送信すると、指示が反映されない場合があります。
+GPT Live開始後の待機時間を変更する場合は、`--voice-stabilization-seconds`を指定します。画面が表示されても内部セッションの準備が終わる前に送信すると、指示が反映されない場合があります。本番用バッチは、実機での読み込み時間を考慮して12秒待機します。
 
 複数のChatGPTウィンドウや入力欄を検出した場合は、誤送信防止のため何も送らず終了します。余分なウィンドウを閉じてから再実行してください。

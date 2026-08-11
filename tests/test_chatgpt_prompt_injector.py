@@ -131,7 +131,7 @@ class PromptInjectorTests(unittest.TestCase):
         self.assertIn('--prompt-file "%REPO_ROOT%\\system_prompt.txt"', batch)
         self.assertIn("--start-voice", batch)
         self.assertIn("--require-codex", batch)
-        self.assertIn("--voice-stabilization-seconds 5", batch)
+        self.assertIn("--voice-stabilization-seconds 12", batch)
         self.assertIn("この音声セッション全体に適用する会話設定", prompt)
         self.assertIn("ほかのファイルや事前設定の読み込みは必要ありません", prompt)
         self.assertNotIn("AGENTS.md", prompt)
@@ -388,6 +388,21 @@ class PromptInjectorTests(unittest.TestCase):
                 )
             )
 
+    def test_find_voice_start_rejects_named_voice_end_action(self) -> None:
+        with self.assertRaises(VoiceStartNotReady):
+            find_voice_start_target(
+                result(
+                    record("voice-composer"),
+                    record(
+                        "end-voice",
+                        control_type="Button",
+                        name="音声チャットを終了",
+                        class_name="size-token-button-composer rounded-full",
+                        rectangle="470,270,500,300",
+                    ),
+                )
+            )
+
     def test_wait_for_voice_ready_requires_start_button_transition(self) -> None:
         voice = record(
             "voice",
@@ -407,6 +422,39 @@ class PromptInjectorTests(unittest.TestCase):
             [
                 result(record("composer"), voice),
                 result(record("voice-composer"), stop),
+            ]
+        )
+        now = [0.0]
+
+        target = wait_for_voice_ready_after_click(
+            provider,
+            wait_seconds=3.0,
+            transition_delay_seconds=0.5,
+            clock=lambda: now[0],
+            sleep=lambda seconds: now.__setitem__(0, now[0] + seconds),
+        )
+
+        self.assertEqual(target.locator, "voice-composer")
+
+    def test_wait_for_voice_ready_accepts_named_voice_end_transition(self) -> None:
+        voice = record(
+            "voice",
+            control_type="Button",
+            name="Start voice",
+            class_name="size-token-button-composer rounded-full",
+            rectangle="470,270,500,300",
+        )
+        end_voice = record(
+            "end-voice",
+            control_type="Button",
+            name="音声チャットを終了",
+            class_name="size-token-button-composer rounded-full",
+            rectangle="470,270,500,300",
+        )
+        provider = FakeProvider(
+            [
+                result(record("composer"), voice),
+                result(record("voice-composer"), end_voice),
             ]
         )
         now = [0.0]
@@ -536,7 +584,7 @@ class PromptInjectorTests(unittest.TestCase):
                 require_codex=True,
                 wait_seconds=3.0,
                 voice_wait_seconds=3.0,
-                voice_stabilization_seconds=5.0,
+                voice_stabilization_seconds=12.0,
                 provider=provider,
                 sender=sender,
                 clicker=clicker,
@@ -548,7 +596,7 @@ class PromptInjectorTests(unittest.TestCase):
         self.assertEqual([target.locator for target in clicker.calls], ["new-chat", "voice"])
         self.assertEqual(sender.calls[0][0].locator, "voice-composer")
         self.assertEqual(sender.calls[0][1:], ("persona", "enter"))
-        self.assertGreaterEqual(now[0], 6.25)
+        self.assertGreaterEqual(now[0], 13.25)
 
 
 if __name__ == "__main__":

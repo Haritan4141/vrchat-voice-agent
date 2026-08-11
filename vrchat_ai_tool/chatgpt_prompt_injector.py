@@ -19,7 +19,7 @@ from .chatgpt_ui_diagnostic import (
 DEFAULT_PROMPT_PATH = Path("system_prompt.txt")
 DEFAULT_WAIT_SECONDS = 15.0
 DEFAULT_VOICE_WAIT_SECONDS = 45.0
-DEFAULT_VOICE_STABILIZATION_SECONDS = 5.0
+DEFAULT_VOICE_STABILIZATION_SECONDS = 12.0
 MAX_PROMPT_BYTES = 64 * 1024
 COMPOSER_NAMES = (
     "何でもどうぞ",
@@ -48,6 +48,17 @@ VOICE_NAME_MARKERS = (
     "ライブ",
     "voice",
     "live",
+)
+VOICE_END_NAME_MARKERS = (
+    "終了",
+    "停止",
+    "閉じる",
+    "切断",
+    "end",
+    "stop",
+    "close",
+    "leave",
+    "disconnect",
 )
 BLOCKED_COMPOSER_ACTION_NAMES = (
     "停止",
@@ -291,7 +302,8 @@ def find_voice_start_target(result: UiScanResult) -> PromptTarget:
         if not _is_near_composer(rectangle, composer.rectangle):
             continue
         name = " ".join(record.name.casefold().split())
-        if name in BLOCKED_COMPOSER_ACTION_NAMES:
+        is_voice_end_action = any(marker in name for marker in VOICE_END_NAME_MARKERS)
+        if name in BLOCKED_COMPOSER_ACTION_NAMES or is_voice_end_action:
             blocked_action_found = True
             continue
         class_name = record.class_name.casefold()
