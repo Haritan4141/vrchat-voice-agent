@@ -530,3 +530,14 @@ uvx ruff check vrchat_ai_tool/chatgpt_ui_state.py `
 - `apply_voice_prompt.bat`はランチャーのため変更不要。修正対象は
   `vrchat_ai_tool/chatgpt_prompt_injector.py`とテスト。
 - この修正は現在未コミット。ユーザー所有の`5700X_PC/`と`config/settings.toml`は変更しない。
+
+## 20. 2026-08-12 Voiceプロンプトの送信方式と待機時間
+
+- 5700X実機ではプロンプト本文の貼り付けに成功しても、Enterが送信にならず入力欄へ残った。
+- Ctrl+Enterも改行になる設定があり得るため、キー操作による送信は採用しない。
+- `controls\apply_voice_prompt.bat`は、貼り付け後に入力欄付近の名前付き送信ボタンを
+  UI Automationで一意に特定し、ボタン自体をクリックする。
+- 送信ボタンを安全に特定できない場合は推測でクリックせず、入力欄へ本文を残してエラー終了する。
+- GPT Live UI検出後の安定化待機を12秒から5秒へ短縮した。
+- ツールはChatGPT側の受理まで確認できないため、コンソール表示を`Prompt sent`から
+  `Prompt submission requested`へ変更し、「準備できたよ」の返答を完了確認とする。

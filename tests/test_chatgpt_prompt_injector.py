@@ -1,22 +1,25 @@
 from __future__ import annotations
 
+import sys
 import tempfile
 import unittest
 from contextlib import redirect_stdout
 from io import StringIO
 from pathlib import Path
 from types import SimpleNamespace
-from unittest.mock import Mock
+from unittest.mock import Mock, patch
 
 from vrchat_ai_tool.chatgpt_prompt_injector import (
     CodexModeNotReady,
     ComposerNotReady,
     PromptInjectionError,
+    PromptSubmitNotReady,
     VoiceStartNotReady,
     WindowsPromptSender,
     WindowsUiClicker,
     find_new_chat_target,
     find_prompt_target,
+    find_submit_target,
     find_voice_start_target,
     load_prompt,
     parse_rectangle,
@@ -216,7 +219,8 @@ class PromptInjectorTests(unittest.TestCase):
         self.assertIn('--prompt-file "%REPO_ROOT%\\system_prompt.txt"', batch)
         self.assertIn("--start-voice", batch)
         self.assertIn("--require-codex", batch)
-        self.assertIn("--voice-stabilization-seconds 12", batch)
+        self.assertIn("--voice-stabilization-seconds 5", batch)
+        self.assertIn("--submit-key button", batch)
         self.assertIn("この音声セッション全体に適用する会話設定", prompt)
         self.assertIn("ほかのファイルや事前設定の読み込みは必要ありません", prompt)
         self.assertNotIn("AGENTS.md", prompt)
@@ -471,6 +475,89 @@ class PromptInjectorTests(unittest.TestCase):
                     ),
                 )
             )
+
+    def test_find_submit_target_uses_the_named_button_beside_the_composer(self) -> None:
+        target = find_submit_target(
+            result(
+                record("composer"),
+                record(
+                    "dictation",
+                    control_type="Button",
+                    name="音声入力",
+                    rectangle="430,270,460,300",
+                ),
+                record(
+                    "send",
+                    control_type="Button",
+                    name="プロンプトを送信",
+                    rectangle="470,270,500,300",
+                ),
+            ),
+            expected_window_handle=20,
+        )
+
+        self.assertEqual(target.locator, "send")
+
+    def test_find_submit_target_does_not_guess_an_unnamed_button(self) -> None:
+        with self.assertRaises(PromptSubmitNotReady):
+            find_submit_target(
+                result(
+                    record("composer"),
+                    record(
+                        "unknown",
+                        control_type="Button",
+                        name="",
+                        rectangle="470,270,500,300",
+                    ),
+                )
+            )
+
+    def test_sender_button_mode_clicks_send_without_an_enter_key(self) -> None:
+        scan = result(
+            record("composer"),
+            record(
+                "send",
+                control_type="Button",
+                name="Send prompt",
+                rectangle="470,270,500,300",
+            ),
+        )
+        provider = FakeProvider([scan])
+        clicker = FakeClicker()
+        keyboard = SimpleNamespace(send_keys=Mock())
+        pythoncom = SimpleNamespace(
+            COINIT_MULTITHREADED=0,
+            com_error=RuntimeError,
+            CoInitializeEx=Mock(),
+            CoUninitialize=Mock(),
+            OleGetClipboard=Mock(return_value=None),
+        )
+        win32clipboard = SimpleNamespace(
+            CF_UNICODETEXT=13,
+            OpenClipboard=Mock(),
+            EmptyClipboard=Mock(),
+            SetClipboardData=Mock(),
+            CloseClipboard=Mock(),
+        )
+        modules = {
+            "pythoncom": pythoncom,
+            "win32clipboard": win32clipboard,
+            "win32gui": SimpleNamespace(GetForegroundWindow=Mock(return_value=20)),
+            "winerror": SimpleNamespace(RPC_E_CHANGED_MODE=-2147417850),
+            "pywinauto": SimpleNamespace(keyboard=keyboard),
+        }
+        sender = WindowsPromptSender(
+            provider=provider,
+            clicker=clicker,
+            clock=lambda: 0.0,
+            sleep=lambda _seconds: None,
+        )
+
+        with patch.dict(sys.modules, modules):
+            sender.send(find_prompt_target(scan), "persona", "button")
+
+        self.assertEqual([target.locator for target in clicker.calls], ["composer", "send"])
+        keyboard.send_keys.assert_called_once_with("^v", pause=0.02)
 
     def test_find_voice_start_accepts_chat_mode_right_edge_button(self) -> None:
         voice = record(

@@ -176,9 +176,9 @@ def build_parser() -> argparse.ArgumentParser:
     )
     prompt_parser.add_argument(
         "--submit-key",
-        choices=("enter", "ctrl-enter", "none"),
+        choices=("button", "enter", "ctrl-enter", "none"),
         default="enter",
-        help="How to submit after pasting (default: enter).",
+        help="How to submit after pasting (default: enter; button clicks the Send control).",
     )
     prompt_parser.add_argument(
         "--process-name",

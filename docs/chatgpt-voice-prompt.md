@@ -10,7 +10,7 @@ GPT Liveの会話人格は、音声タスクごとに`system_prompt.txt`を最�
 2. `controls\apply_voice_prompt.bat`をダブルクリックします。
 3. ツールがCodexの「新しいチャット」を開き、GPT Live開始ボタンを押します。
 4. GPT Liveの画面が表示されてから内部セッションの準備を5秒待ち、指示を送信します。
-5. `Prompt sent`と表示され、GPT Liveが「準備できたよ」と答えれば適用完了です。
+5. `Prompt submission requested`と表示され、GPT Liveが「準備できたよ」と答えれば適用完了です。
 6. 「名前は？」と聞き、「ラズリだよ」と答えることを確認します。
 
 ランチャーは誤って通常のChatへ送信しないよう、画面左上にCodexモードが表示されていることを確認します。Codexが検出できなければ、何も送信せず終了します。初回のマイク許可やVoice設定画面が表示された場合は、その画面を手動で完了してから再実行してください。
@@ -33,12 +33,14 @@ uv run chatgpt-voice-prompt --prompt-file system_prompt.txt --start-voice --dry-
 
 すでに手動で開始したGPT Liveへ適用する場合は、`--start-voice`を外してください。
 
-Enterで送信されず、入力欄に文章が残る設定の場合:
+本番用バッチは、EnterやCtrl+Enterのキー設定に依存せず、貼り付け後に入力欄右側の名前付き送信ボタンを検出してクリックします。手動コマンドでも同じ送信方法を使う場合:
 
 ```powershell
-uv run chatgpt-voice-prompt --prompt-file system_prompt.txt --submit-key ctrl-enter
+uv run chatgpt-voice-prompt --prompt-file system_prompt.txt --submit-key button
 ```
 
-GPT Live開始後の待機時間を変更する場合は、`--voice-stabilization-seconds`を指定します。画面が表示されても内部セッションの準備が終わる前に送信すると、指示が反映されない場合があります。本番用バッチは、実機での読み込み時間を考慮して12秒待機します。
+送信ボタンを一意に確認できない場合は、別のボタンを推測して押さず、プロンプトを入力欄へ残してエラー終了します。
+
+GPT Live開始後の待機時間を変更する場合は、`--voice-stabilization-seconds`を指定します。画面が表示されても内部セッションの準備が終わる前に送信すると、指示が反映されない場合があります。本番用バッチは5秒待機します。
 
 複数のChatGPTウィンドウや入力欄を検出した場合は、誤送信防止のため何も送らず終了します。余分なウィンドウを閉じてから再実行してください。

@@ -69,6 +69,11 @@ BLOCKED_COMPOSER_ACTION_NAMES = (
     "send",
     "voice input",
 )
+SUBMIT_NAME_MARKERS = (
+    "送信",
+    "send",
+    "submit",
+)
 VOICE_BUTTON_CLASS_FRAGMENT = "size-token-button-composer"
 COMPOSER_ACTION_MAX_RIGHT_GAP = 240
 
@@ -83,6 +88,10 @@ class ComposerNotReady(PromptInjectionError):
 
 class VoiceStartNotReady(PromptInjectionError):
     """Raised when a safe GPT Live start button is not yet available."""
+
+
+class PromptSubmitNotReady(PromptInjectionError):
+    """Raised when the exact prompt submission button is not yet available."""
 
 
 class CodexModeNotReady(PromptInjectionError):
@@ -361,6 +370,44 @@ def find_voice_start_target(result: UiScanResult) -> PromptTarget:
     return _unique_target(records, description="GPT Live start")
 
 
+def find_submit_target(
+    result: UiScanResult,
+    *,
+    expected_window_handle: int | None = None,
+) -> PromptTarget:
+    """Find the visible named Send button beside the verified composer."""
+    composer = find_prompt_target(result)
+    if (
+        expected_window_handle is not None
+        and composer.window_handle != expected_window_handle
+    ):
+        raise PromptSubmitNotReady("The original ChatGPT message box is no longer visible.")
+
+    records: list[UiElementRecord] = []
+    for record in result.elements.values():
+        if record.window_handle != composer.window_handle:
+            continue
+        if record.control_type.casefold() != "button":
+            continue
+        if record.is_enabled is False or record.is_offscreen is True:
+            continue
+        name = " ".join(record.name.casefold().split())
+        if not name or not any(marker in name for marker in SUBMIT_NAME_MARKERS):
+            continue
+        try:
+            rectangle = parse_rectangle(record.rectangle)
+        except PromptInjectionError:
+            continue
+        if _is_near_composer(rectangle, composer.rectangle):
+            records.append(record)
+
+    if not records:
+        raise PromptSubmitNotReady(
+            "The ChatGPT Send button is not ready. The prompt was pasted but not submitted."
+        )
+    return _unique_target(records, description="prompt submit")
+
+
 class WindowsUiClicker:
     """Activate one verified ChatGPT window and click an exact screen rectangle."""
 
@@ -516,6 +563,21 @@ class WindowsUiClicker:
 class WindowsPromptSender:
     """Paste into one verified ChatGPT composer and optionally submit it."""
 
+    def __init__(
+        self,
+        *,
+        provider: SnapshotProvider | None = None,
+        clicker: UiClicker | None = None,
+        submit_wait_seconds: float = 5.0,
+        clock: Callable[[], float] = time.monotonic,
+        sleep: Callable[[float], None] = time.sleep,
+    ) -> None:
+        self.provider = provider
+        self.clicker = clicker
+        self.submit_wait_seconds = submit_wait_seconds
+        self.clock = clock
+        self.sleep = sleep
+
     @staticmethod
     def _open_clipboard(win32clipboard, deadline: float) -> None:
         while True:
@@ -563,7 +625,7 @@ class WindowsPromptSender:
     def send(self, target: PromptTarget, prompt: str, submit_key: str) -> None:
         if platform.system() != "Windows":
             raise PromptInjectionError("Prompt injection is available only on Windows.")
-        if submit_key not in {"enter", "ctrl-enter", "none"}:
+        if submit_key not in {"button", "enter", "ctrl-enter", "none"}:
             raise PromptInjectionError(f"Unsupported submit key: {submit_key}")
 
         try:
@@ -587,22 +649,45 @@ class WindowsPromptSender:
                     original_clipboard = None
 
                 self._put_prompt_on_clipboard(win32clipboard, prompt)
-                WindowsUiClicker().click(target)
+                (
+                    self.clicker
+                    or WindowsUiClicker(clock=self.clock, sleep=self.sleep)
+                ).click(target)
                 if win32gui.GetForegroundWindow() != target.window_handle:
                     raise PromptInjectionError(
                         "ChatGPT lost focus before pasting; nothing was submitted."
                     )
                 keyboard.send_keys("^v", pause=0.02)
-                time.sleep(0.35)
+                self.sleep(0.35)
 
                 if submit_key != "none":
                     if win32gui.GetForegroundWindow() != target.window_handle:
                         raise PromptInjectionError(
                             "ChatGPT lost focus after pasting; the prompt was not submitted."
                         )
-                    keys = "{ENTER}" if submit_key == "enter" else "^{ENTER}"
-                    keyboard.send_keys(keys, pause=0.02)
-                    time.sleep(0.2)
+                    if submit_key == "button":
+                        scanner = self.provider or PywinautoSnapshotProvider(
+                            DEFAULT_PROCESS_NAMES,
+                            include_offscreen=False,
+                        )
+                        submit_target = _wait_for_ui_target(
+                            scanner,
+                            lambda result: find_submit_target(
+                                result,
+                                expected_window_handle=target.window_handle,
+                            ),
+                            wait_seconds=self.submit_wait_seconds,
+                            clock=self.clock,
+                            sleep=self.sleep,
+                        )
+                        (
+                            self.clicker
+                            or WindowsUiClicker(clock=self.clock, sleep=self.sleep)
+                        ).click(submit_target)
+                    else:
+                        keys = "{ENTER}" if submit_key == "enter" else "^{ENTER}"
+                        keyboard.send_keys(keys, pause=0.02)
+                    self.sleep(0.2)
             finally:
                 restored = self._restore_or_clear_clipboard(
                     pythoncom,
@@ -612,7 +697,7 @@ class WindowsPromptSender:
                 )
                 if original_available and not restored:
                     print(
-                        "Warning: the prompt was submitted, but the previous clipboard "
+                        "Warning: prompt submission was requested, but the previous clipboard "
                         "could not be restored. The clipboard was cleared for privacy."
                     )
                 # Release the OLE proxy before leaving the initialized COM apartment.
@@ -659,7 +744,7 @@ def _wait_for_ui_target(
         result = provider.scan()
         try:
             return finder(result)
-        except (ComposerNotReady, VoiceStartNotReady) as exc:
+        except (ComposerNotReady, VoiceStartNotReady, PromptSubmitNotReady) as exc:
             last_error = exc
         now = clock()
         if now >= deadline:
@@ -727,6 +812,7 @@ def run_prompt_injector(
         )
     prompt = load_prompt(prompt_path)
     scanner = provider or PywinautoSnapshotProvider(process_names, include_offscreen=False)
+    ui_clicker = clicker or WindowsUiClicker(clock=clock, sleep=sleep)
 
     print("ChatGPT Voice Prompt Injector")
     print(f"- Prompt file: {prompt_path.expanduser().resolve()}")
@@ -765,7 +851,6 @@ def run_prompt_injector(
             print("Ready: New chat and GPT Live start controls were found. No input was sent.")
             return 0
 
-        ui_clicker = clicker or WindowsUiClicker()
         ui_clicker.click(new_chat_target)
         sleep(0.75)
         print("Looking for the GPT Live start button...")
@@ -802,9 +887,17 @@ def run_prompt_injector(
             print("Ready: one ChatGPT message box was found. No input was sent.")
             return 0
 
-    (sender or WindowsPromptSender()).send(target, prompt, submit_key)
+    (
+        sender
+        or WindowsPromptSender(
+            provider=scanner,
+            clicker=ui_clicker,
+            clock=clock,
+            sleep=sleep,
+        )
+    ).send(target, prompt, submit_key)
     if submit_key == "none":
         print("Prompt pasted but not submitted.")
     else:
-        print("Prompt sent. Wait for ChatGPT's configured ready confirmation.")
+        print("Prompt submission requested. Wait for ChatGPT's ready confirmation.")
     return 0

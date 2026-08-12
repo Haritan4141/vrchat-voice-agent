@@ -14,7 +14,7 @@ if errorlevel 1 goto :missing_uv
 if errorlevel 1 goto :failed
 call "%REPO_ROOT%\controls\ensure_voice_monitor.bat"
 if errorlevel 1 goto :monitor_failed
-"%UV_EXE%" run chatgpt-voice-prompt --prompt-file "%REPO_ROOT%\system_prompt.txt" --start-voice --require-codex --wait-seconds 30 --voice-wait-seconds 45 --voice-stabilization-seconds 12
+"%UV_EXE%" run chatgpt-voice-prompt --prompt-file "%REPO_ROOT%\system_prompt.txt" --start-voice --require-codex --wait-seconds 30 --voice-wait-seconds 45 --voice-stabilization-seconds 5 --submit-key button
 set "RESULT=%errorlevel%"
 echo.
 if "%RESULT%"=="0" (
