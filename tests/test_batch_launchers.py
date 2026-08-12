@@ -10,6 +10,7 @@ class BatchLauncherTests(unittest.TestCase):
     def test_daily_launchers_are_grouped_under_controls(self) -> None:
         for name in (
             "apply_voice_prompt.bat",
+            "ensure_voice_monitor.bat",
             "run_chatgpt_voice_production.bat",
         ):
             self.assertTrue((self.controls / name).is_file(), name)
@@ -30,6 +31,24 @@ class BatchLauncherTests(unittest.TestCase):
             encoding="ascii"
         )
         self.assertIn('call "%~dp0..\\launch_voice_control.bat"', content)
+
+    def test_prompt_launcher_ensures_production_monitor_is_running(self) -> None:
+        prompt_launcher = (self.controls / "apply_voice_prompt.bat").read_text(
+            encoding="ascii"
+        )
+        monitor_launcher = (self.controls / "ensure_voice_monitor.bat").read_text(
+            encoding="ascii"
+        )
+
+        self.assertIn(
+            'call "%REPO_ROOT%\\controls\\ensure_voice_monitor.bat"',
+            prompt_launcher,
+        )
+        self.assertIn("if errorlevel 1 goto :monitor_failed", prompt_launcher)
+        self.assertIn('set "VOICE_CONTROL_PORT=18765"', monitor_launcher)
+        self.assertIn("netstat.exe", monitor_launcher)
+        self.assertIn("run_chatgpt_voice_production.bat", monitor_launcher)
+        self.assertIn("for /l %%N in (1,1,45)", monitor_launcher)
 
     def test_control_launcher_installs_production_dependencies(self) -> None:
         content = (self.repository_root / "launch_voice_control.bat").read_text(

@@ -61,7 +61,7 @@ uv run vrchat-voice-control --config config/chatgpt_voice.toml
 
 詳細は[ChatGPT Voice運用ガイド](docs/chatgpt-voice-control.md)を参照してください。
 
-キャラクター指示は`controls\apply_voice_prompt.bat`から適用します。普段使う起動バッチは`controls`フォルダーへまとめています。詳しい手順は[GPT Liveへのキャラクター指示の適用](docs/chatgpt-voice-prompt.md)を参照してください。
+キャラクター指示は`controls\apply_voice_prompt.bat`から適用します。このバッチは本番監視ポートを確認し、監視が停止していれば`run_chatgpt_voice_production.bat`を最小化状態で自動起動してからGPT Liveを開始します。すでに監視中なら重複起動しません。普段使う起動バッチは`controls`フォルダーへまとめています。詳しい手順は[GPT Liveへのキャラクター指示の適用](docs/chatgpt-voice-prompt.md)を参照してください。
 
 ## 重要
 
